@@ -4,8 +4,8 @@ const RESEND_DEBUG = 'RESEND_DEBUG';
 
 /** Display name shown in the recipient's inbox. */
 const DEFAULT_FROM_NAME = 'SentryAid';
-/** Verified sender address on your Resend domain. */
-const DEFAULT_FROM_EMAIL = 'otp@product.example.com';
+/** Verified sender address on Resend domain product.pookiedhk.com */
+const DEFAULT_FROM_EMAIL = 'otp@product.pookiedhk.com';
 
 /**
  * Resend "from" header: "Name <email@domain.com>".
@@ -22,6 +22,8 @@ function resolveFromAddress() {
 }
 
 const DEFAULT_FROM = resolveFromAddress();
+
+console.log(RESEND_DEBUG, 'resolved sender email:', DEFAULT_FROM);
 
 let resendClient = null;
 
