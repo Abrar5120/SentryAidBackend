@@ -4,11 +4,13 @@ require('dotenv').config({
   path: path.join(__dirname, '.env')
 });
 
-const { RESEND_DEBUG } = require('./utils/resendEmailService');
+const { RESEND_DEBUG, resolveFromAddress } = require('./utils/resendEmailService');
 console.log(
   RESEND_DEBUG,
   'email transport: Resend API only',
-  process.env.RESEND_API_KEY ? '(RESEND_API_KEY set)' : '(RESEND_API_KEY missing)'
+  process.env.RESEND_API_KEY ? '(RESEND_API_KEY set)' : '(RESEND_API_KEY missing)',
+  'from:',
+  resolveFromAddress()
 );
 
 const express = require('express');

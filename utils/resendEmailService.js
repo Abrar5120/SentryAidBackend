@@ -1,7 +1,27 @@
 const { Resend } = require('resend');
 
 const RESEND_DEBUG = 'RESEND_DEBUG';
-const DEFAULT_FROM = 'onboarding@resend.dev';
+
+/** Display name shown in the recipient's inbox. */
+const DEFAULT_FROM_NAME = 'SentryAid';
+/** Verified sender address on your Resend domain. */
+const DEFAULT_FROM_EMAIL = 'otp@product.example.com';
+
+/**
+ * Resend "from" header: "Name <email@domain.com>".
+ * Override on Railway via RESEND_FROM (full string) or RESEND_FROM_NAME + RESEND_FROM_EMAIL.
+ */
+function resolveFromAddress() {
+  const full = process.env.RESEND_FROM;
+  if (full && String(full).trim()) {
+    return String(full).trim();
+  }
+  const name = (process.env.RESEND_FROM_NAME || DEFAULT_FROM_NAME).trim();
+  const email = (process.env.RESEND_FROM_EMAIL || DEFAULT_FROM_EMAIL).trim();
+  return `${name} <${email}>`;
+}
+
+const DEFAULT_FROM = resolveFromAddress();
 
 let resendClient = null;
 
@@ -31,14 +51,16 @@ async function sendResendEmail({ to, subject, html, context = 'email' }) {
     throw err;
   }
 
+  const from = resolveFromAddress();
+
   console.log(RESEND_DEBUG, `sending ${context} to`, recipient);
   console.log(RESEND_DEBUG, 'subject:', subject);
-  console.log(RESEND_DEBUG, 'from:', DEFAULT_FROM);
+  console.log(RESEND_DEBUG, 'from:', from);
 
   try {
     const resend = getResendClient();
     const { data, error } = await resend.emails.send({
-      from: DEFAULT_FROM,
+      from,
       to: [recipient],
       subject,
       html
@@ -69,5 +91,6 @@ async function sendResendEmail({ to, subject, html, context = 'email' }) {
 module.exports = {
   sendResendEmail,
   RESEND_DEBUG,
-  DEFAULT_FROM
+  DEFAULT_FROM,
+  resolveFromAddress
 };
