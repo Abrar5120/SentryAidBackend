@@ -1,19 +1,12 @@
-const nodemailer = require('nodemailer');
+/**
+ * Password reset emails — Resend API only (no Nodemailer/SMTP).
+ */
+const { sendResendEmail, RESEND_DEBUG } = require('./resendEmailService');
 
 async function sendPasswordResetEmail(email, token) {
-  const transporter = nodemailer.createTransport({
-    service: 'gmail',
-    auth: {
-      user: process.env.EMAIL_USER,
-      pass: process.env.EMAIL_PASS
-    }
-  });
+  console.log(RESEND_DEBUG, 'sending password reset email to', email);
 
-  const mailOptions = {
-    from: process.env.EMAIL_USER,
-    to: email,
-    subject: 'SentryAid Password Reset Code',
-    html: `
+  const html = `
 <div style="font-family: Arial, sans-serif; padding: 20px; color: #333;">
     <h2 style="color:#1A3A5F;">SentryAid Password Reset</h2>
 
@@ -40,19 +33,14 @@ async function sendPasswordResetEmail(email, token) {
     <p>Thank you,</p>
     <p><strong>SentryAid Team</strong></p>
 </div>
-`
-  };
+`;
 
-  try {
-    const info = await transporter.sendMail(mailOptions);
-    console.log('PASSWORD_RESET_DEBUG email transport success');
-    console.log(info);
-    return info;
-  } catch (error) {
-    console.log('PASSWORD_RESET_DEBUG email transport failed');
-    console.log(error);
-    throw error;
-  }
+  return sendResendEmail({
+    to: email,
+    subject: 'SentryAid Password Reset Code',
+    html,
+    context: 'password reset'
+  });
 }
 
 module.exports = sendPasswordResetEmail;

@@ -7,6 +7,7 @@ const multer = require('multer');
 const User = require('../models/User');
 const protect = require('../middleware/authMiddleware');
 const sendOTPEmail = require('../utils/sendOTPEmail');
+const { RESEND_DEBUG } = require('../utils/resendEmailService');
 const { forgotPassword, resetPassword } = require('../controllers/authController');
 
 const router = express.Router();
@@ -127,10 +128,14 @@ router.post('/register', upload.single('profileImage'), async (req, res) => {
     await user.save();
 
     try {
+      console.log(RESEND_DEBUG, 'registration route invoking sendOTPEmail (Resend) for', user.email);
       await sendOTPEmail(user.email, emailOTP);
-      console.log("EMAIL_OTP_DEBUG", "OTP email sent successfully");
+      console.log(RESEND_DEBUG, 'registration OTP email success', user.email);
     } catch (mailErr) {
-      console.error("EMAIL_OTP_DEBUG", "OTP email failed", mailErr);
+      console.error(RESEND_DEBUG, 'registration OTP email failed', user.email, mailErr?.message || mailErr);
+      if (mailErr?.stack) {
+        console.error(RESEND_DEBUG, 'registration OTP email stack', mailErr.stack);
+      }
     }
 
     res.status(201).json({

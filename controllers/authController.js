@@ -1,6 +1,7 @@
 const bcrypt = require('bcrypt');
 const User = require('../models/User');
 const sendPasswordResetEmail = require('../utils/sendPasswordResetEmail');
+const { RESEND_DEBUG } = require('../utils/resendEmailService');
 
 const GENERIC_FORGOT_SUCCESS_MESSAGE =
   'If an account exists with this email, a reset code has been sent.';
@@ -78,10 +79,14 @@ const forgotPassword = async (req, res) => {
     console.log('PASSWORD_RESET_DEBUG token generated for', emailNorm);
 
     try {
+      console.log(RESEND_DEBUG, 'forgot-password route invoking sendPasswordResetEmail (Resend) for', emailNorm);
       await sendPasswordResetEmail(user.email, token);
-      console.log('PASSWORD_RESET_DEBUG email sent to', emailNorm);
+      console.log(RESEND_DEBUG, 'password reset email success', emailNorm);
     } catch (mailErr) {
-      console.error('PASSWORD_RESET_DEBUG email failed', mailErr);
+      console.error(RESEND_DEBUG, 'password reset email failed', emailNorm, mailErr?.message || mailErr);
+      if (mailErr?.stack) {
+        console.error(RESEND_DEBUG, 'password reset email stack', mailErr.stack);
+      }
       return res.status(500).json({
         success: false,
         message: 'Unable to send reset email. Please try again later.'

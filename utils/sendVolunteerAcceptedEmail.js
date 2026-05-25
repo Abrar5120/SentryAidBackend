@@ -1,4 +1,7 @@
-const nodemailer = require('nodemailer');
+/**
+ * Volunteer-accepted SOS emails — Resend API only (no Nodemailer/SMTP).
+ */
+const { sendResendEmail, RESEND_DEBUG } = require('./resendEmailService');
 
 const VOLUNTEER_ACCEPTED_EMAIL_DEBUG = 'VOLUNTEER_ACCEPTED_EMAIL_DEBUG';
 const EMAIL_SUBJECT = 'SentryAid Alert: A Volunteer Has Accepted the Emergency Request';
@@ -57,35 +60,16 @@ function buildVolunteerAcceptedHtml(emergencyUser, volunteer, acceptedAt) {
  * @param {Date} acceptedAt
  */
 async function sendVolunteerAcceptedEmail(recipientEmail, volunteer, emergencyUser, acceptedAt) {
-  if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) {
-    console.log(
-      VOLUNTEER_ACCEPTED_EMAIL_DEBUG,
-      'email skipped (EMAIL_USER / EMAIL_PASS not set)',
-      recipientEmail
-    );
-    return;
-  }
-
-  const transporter = nodemailer.createTransport({
-    service: 'gmail',
-    auth: {
-      user: process.env.EMAIL_USER,
-      pass: process.env.EMAIL_PASS
-    }
-  });
+  console.log(VOLUNTEER_ACCEPTED_EMAIL_DEBUG, RESEND_DEBUG, 'sending volunteer accepted email to', recipientEmail);
 
   const acceptedDate = acceptedAt instanceof Date ? acceptedAt : new Date(acceptedAt);
 
-  const mailOptions = {
-    from: process.env.EMAIL_USER,
+  return sendResendEmail({
     to: recipientEmail,
     subject: EMAIL_SUBJECT,
-    html: buildVolunteerAcceptedHtml(emergencyUser, volunteer, acceptedDate)
-  };
-
-  const info = await transporter.sendMail(mailOptions);
-  console.log(VOLUNTEER_ACCEPTED_EMAIL_DEBUG, 'transport success for', recipientEmail);
-  return info;
+    html: buildVolunteerAcceptedHtml(emergencyUser, volunteer, acceptedDate),
+    context: 'volunteer accepted SOS'
+  });
 }
 
 module.exports = sendVolunteerAcceptedEmail;
