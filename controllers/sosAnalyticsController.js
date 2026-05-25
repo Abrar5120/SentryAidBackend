@@ -3,9 +3,20 @@ const SOS = require('../models/SOS');
 const HEATMAP_DEBUG = 'HEATMAP_DEBUG';
 const SOS_ANALYTICS_DEBUG = 'SOS_ANALYTICS_DEBUG';
 
+const HEATMAP_MAX_CLUSTERS = 800;
+
+function isValidCoordinate(lat, lon) {
+  if (typeof lat !== 'number' || typeof lon !== 'number') return false;
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return false;
+  if (lat === 0 && lon === 0) return false;
+  if (lat < -90 || lat > 90 || lon < -180 || lon > 180) return false;
+  return true;
+}
+
 /**
  * GET /api/sos/heatmap
- * Last 30 days SOS (non-cancelled), grouped by approximate location; intensity 1–3 from count bands.
+ * Last 30 days SOS (non-cancelled), grouped by approximate location.
+ * Returns latitude, longitude, sosCount, intensity, areaName.
  */
 const getSosHeatmap = async (req, res) => {
   try {
@@ -18,8 +29,8 @@ const getSosHeatmap = async (req, res) => {
         $match: {
           createdAt: { $gte: thirtyDaysAgo },
           status: { $ne: 'cancelled' },
-          latitude: { $exists: true, $ne: null },
-          longitude: { $exists: true, $ne: null }
+          latitude: { $exists: true, $type: 'number', $ne: null },
+          longitude: { $exists: true, $type: 'number', $ne: null }
         }
       },
       {
@@ -29,13 +40,32 @@ const getSosHeatmap = async (req, res) => {
           },
           lonBucket: {
             $divide: [{ $floor: { $multiply: ['$longitude', 100] } }, 100]
+          },
+          areaLabel: {
+            $cond: [
+              {
+                $and: [
+                  { $ne: ['$areaName', null] },
+                  { $ne: ['$areaName', ''] }
+                ]
+              },
+              '$areaName',
+              'Unknown'
+            ]
           }
+        }
+      },
+      {
+        $match: {
+          latBucket: { $ne: 0 },
+          lonBucket: { $ne: 0 }
         }
       },
       {
         $group: {
           _id: { lat: '$latBucket', lon: '$lonBucket' },
-          sosCount: { $sum: 1 }
+          sosCount: { $sum: 1 },
+          areaName: { $first: '$areaLabel' }
         }
       },
       {
@@ -44,6 +74,7 @@ const getSosHeatmap = async (req, res) => {
           latitude: '$_id.lat',
           longitude: '$_id.lon',
           sosCount: 1,
+          areaName: 1,
           intensity: {
             $cond: [
               { $lte: ['$sosCount', 2] },
@@ -55,14 +86,21 @@ const getSosHeatmap = async (req, res) => {
           }
         }
       },
-      { $sort: { sosCount: -1 } }
+      { $sort: { sosCount: -1 } },
+      { $limit: HEATMAP_MAX_CLUSTERS }
     ];
 
-    const data = await SOS.aggregate(pipeline);
-    console.log(HEATMAP_DEBUG, 'window=30d clusters=', data.length);
+    const raw = await SOS.aggregate(pipeline);
+    const data = raw.filter((row) =>
+      isValidCoordinate(row.latitude, row.longitude)
+    );
+
+    console.log(HEATMAP_DEBUG, 'fetched points count=', raw.length);
+    console.log(HEATMAP_DEBUG, 'valid clusters returned=', data.length);
+    console.log(HEATMAP_DEBUG, 'API success');
     return res.status(200).json({ success: true, data });
   } catch (err) {
-    console.error(HEATMAP_DEBUG, err);
+    console.error(HEATMAP_DEBUG, 'API failure', err?.message || err);
     return res.status(500).json({ success: false, message: 'Failed to load heatmap' });
   }
 };
