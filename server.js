@@ -13,6 +13,9 @@ console.log(
 );
 console.log(RESEND_DEBUG, 'resolved sender email:', resolvedSender);
 
+const { initFirebaseAdminIfPossible } = require('./config/firebaseAdmin');
+initFirebaseAdminIfPossible();
+
 const express = require('express');
 const cors = require('cors');
 const connectDB = require('./config/db');

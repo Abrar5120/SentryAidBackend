@@ -1,6 +1,5 @@
-const admin = require('firebase-admin');
+const { admin, initFirebaseAdminIfPossible } = require('../config/firebaseAdmin');
 const User = require('../models/User');
-const { initFirebaseAdminIfPossible } = require('./fcmBroadcastService');
 
 const SOS_FCM_DEBUG = 'SOS_FCM_DEBUG';
 const SOS_NEARBY_RADIUS_METERS = 3000;

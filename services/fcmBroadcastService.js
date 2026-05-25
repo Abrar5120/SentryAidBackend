@@ -1,46 +1,7 @@
-const fs = require('fs');
-const path = require('path');
-const admin = require('firebase-admin');
+const { admin, initFirebaseAdminIfPossible } = require('../config/firebaseAdmin');
 const User = require('../models/User');
 
 const BROADCAST_FCM_TAG = 'BROADCAST_FCM';
-
-function loadServiceAccountJson() {
-  const keyPath =
-    process.env.FIREBASE_SERVICE_ACCOUNT_PATH ||
-    process.env.GOOGLE_APPLICATION_CREDENTIALS ||
-    'firebase-service-account.json';
-  if (!keyPath) {
-    return null;
-  }
-  const resolved = path.isAbsolute(keyPath) ? keyPath : path.join(__dirname, '..', keyPath);
-  const raw = fs.readFileSync(resolved, 'utf8');
-  return JSON.parse(raw);
-}
-
-function initFirebaseAdminIfPossible() {
-  if (admin.apps.length > 0) {
-    return true;
-  }
-  try {
-    const svc = loadServiceAccountJson();
-    if (!svc) {
-      console.warn(
-        BROADCAST_FCM_TAG,
-        'Set FIREBASE_SERVICE_ACCOUNT_PATH or GOOGLE_APPLICATION_CREDENTIALS to enable push notifications'
-      );
-      return false;
-    }
-    admin.initializeApp({
-      credential: admin.credential.cert(svc)
-    });
-    console.log(BROADCAST_FCM_TAG, 'Firebase Admin initialised');
-    return true;
-  } catch (e) {
-    console.error(BROADCAST_FCM_TAG, 'init failed:', e.message);
-    return false;
-  }
-}
 
 async function sendBroadcastNotifications(opts) {
   const { broadcastId, title } = opts || {};
@@ -111,7 +72,5 @@ async function sendBroadcastNotifications(opts) {
 }
 
 module.exports = {
-  sendBroadcastNotifications,
-  initFirebaseAdminIfPossible,
-  loadServiceAccountJson
+  sendBroadcastNotifications
 };
