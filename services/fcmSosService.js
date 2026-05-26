@@ -105,29 +105,19 @@ async function sendNearbyVolunteerSosNotifications(sos) {
   for (let i = 0; i < tokens.length; i += BATCH) {
     const batch = tokens.slice(i, i + BATCH);
     // eslint-disable-next-line no-await-in-loop
+    // Data-only message so Android onMessageReceived runs in background/killed state
+    // and can play the 10-second emergency alarm (notification payload is built on-device).
     const res = await messaging.sendEachForMulticast({
       tokens: batch,
-      notification: {
-        title: '🚨 Emergency SOS Nearby',
-        body: 'A user near your location needs immediate assistance.'
-      },
       data: {
-        type: 'sos_alert',
+        type: 'SOS_ALERT',
         sosId,
         targetScreen: 'volunteer_dashboard',
-        title: '🚨 Emergency SOS Nearby',
-        body: 'A user near your location needs immediate assistance.'
+        title: '🚨 EMERGENCY SOS ALERT',
+        body: 'Someone nearby needs emergency assistance.'
       },
       android: {
-        priority: 'high',
-        notification: {
-          channelId: 'sos_alerts',
-          sound: 'default',
-          priority: 'max',
-          defaultSound: true,
-          defaultVibrateTimings: true,
-          visibility: 'public'
-        }
+        priority: 'high'
       }
     });
     totalSuccess += res.successCount;
