@@ -33,18 +33,15 @@ const userRoutes = require('./routes/userRoutes');
 
 const app = express();
 
-// Ensure profile upload directory exists
-const uploadDir = path.join(__dirname, 'uploads/profile');
-if (!fs.existsSync(uploadDir)) {
-  fs.mkdirSync(uploadDir, { recursive: true });
-}
+const { ensureUploadDirectories, PROFILE_DIR } = require('./config/uploadDirs');
+ensureUploadDirectories();
 
 // Middleware
 app.use(express.json());
 app.use(cors());
 
-// Serve uploaded images publicly
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+// Profile images only — NID images are admin-protected via /api/admin/users/:id/nid/:side
+app.use('/uploads/profile', express.static(PROFILE_DIR));
 
 // Test route
 app.get('/', (req, res) => {

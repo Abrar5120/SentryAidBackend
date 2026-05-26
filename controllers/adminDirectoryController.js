@@ -22,10 +22,14 @@ function mapUserPublic(u) {
     _id: u._id,
     name: u.name,
     email: u.email,
+    phone: u.phone || '',
+    nid: u.nid || '',
     role: u.role,
     status: u.status,
     volunteerAvailabilityStatus: u.volunteerAvailabilityStatus,
     profileImage: u.profileImage || '',
+    hasNidFront: Boolean(u.nidFrontImage),
+    hasNidBack: Boolean(u.nidBackImage),
     createdAt: u.createdAt
   };
 }

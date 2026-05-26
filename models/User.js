@@ -82,6 +82,15 @@ const userSchema = new mongoose.Schema({
     type: String,
     default: ''
   },
+  /** Relative paths e.g. /uploads/nid/filename.jpg — admin-only access */
+  nidFrontImage: {
+    type: String,
+    default: ''
+  },
+  nidBackImage: {
+    type: String,
+    default: ''
+  },
   /** FCM registration tokens from mobile clients (Firebase Cloud Messaging). */
   fcmTokens: {
     type: [String],

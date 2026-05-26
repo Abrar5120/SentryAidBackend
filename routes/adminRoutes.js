@@ -8,6 +8,10 @@ const {
   deleteAdminUserAccount
 } = require('../controllers/adminDirectoryController');
 const {
+  streamUserNidImage,
+  getAdminUserDetail
+} = require('../controllers/adminNidController');
+const {
   getAdminReviews,
   deleteAdminReview,
   getAdminVolunteerRankings
@@ -22,6 +26,8 @@ router.delete('/reviews/:id', protect, adminOnly, deleteAdminReview);
 router.get('/volunteer-rankings', protect, adminOnly, getAdminVolunteerRankings);
 
 router.get('/users', protect, adminOnly, getAdminUsersDirectory);
+router.get('/users/:userId/detail', protect, adminOnly, getAdminUserDetail);
+router.get('/users/:userId/nid/:side', protect, adminOnly, streamUserNidImage);
 router.get('/volunteers', protect, adminOnly, getAdminVolunteersDirectory);
 router.delete('/users/:id', protect, adminOnly, deleteAdminUserAccount);
 
@@ -69,7 +75,7 @@ router.put('/approve/:userId', async (req, res) => {
 
 // GET /api/admin/pending-volunteers
 // Returns all users with volunteer approval pending.
-router.get('/pending-volunteers', async (req, res) => {
+router.get('/pending-volunteers', protect, adminOnly, async (req, res) => {
   try {
     const volunteerRoleFilter = { $in: ['VOLUNTEER', 'BOTH'] };
 
@@ -95,7 +101,9 @@ router.get('/pending-volunteers', async (req, res) => {
       email: user.email,
       role: user.role,
       nid: user.nid || "",
-      profileImage: user.profileImage || ""
+      profileImage: user.profileImage || "",
+      hasNidFront: Boolean(user.nidFrontImage),
+      hasNidBack: Boolean(user.nidBackImage)
     }));
 
     // Return success response with pending volunteers
@@ -195,7 +203,7 @@ router.put('/reject-volunteer/:id', async (req, res) => {
 
 // POST /api/admin/approve-volunteer/:id
 // Approves a volunteer by setting their status and volunteerStatus to "approved"
-router.post('/approve-volunteer/:id', async (req, res) => {
+router.post('/approve-volunteer/:id', protect, adminOnly, async (req, res) => {
   try {
     const { id } = req.params;
 
@@ -235,7 +243,7 @@ router.post('/approve-volunteer/:id', async (req, res) => {
 
 // POST /api/admin/reject-volunteer/:id
 // Rejects a volunteer by setting their status and volunteerStatus to "rejected"
-router.post('/reject-volunteer/:id', async (req, res) => {
+router.post('/reject-volunteer/:id', protect, adminOnly, async (req, res) => {
   try {
     const { id } = req.params;
 

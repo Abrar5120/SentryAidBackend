@@ -1,10 +1,15 @@
 const express = require('express');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
-const fs = require('fs');
-const path = require('path');
 const multer = require('multer');
 const User = require('../models/User');
+const {
+  registerUploadFields,
+  cleanupUploadedFiles,
+  fileToRelativePath,
+  REGISTER_NID_DEBUG,
+  NID_UPLOAD_DEBUG
+} = require('../config/registrationUpload');
 const protect = require('../middleware/authMiddleware');
 const sendOTPEmail = require('../utils/sendOTPEmail');
 const { RESEND_DEBUG } = require('../utils/resendEmailService');
@@ -15,57 +20,51 @@ const router = express.Router();
 const OTP_EXPIRY_MINUTES = 5;
 const generateOTP = () => String(Math.floor(100000 + Math.random() * 900000));
 
-// Ensure upload directory exists before configuring multer
-const uploadDir = path.join(__dirname, "../uploads/profile");
-
-if (!fs.existsSync(uploadDir)) {
-  fs.mkdirSync(uploadDir, { recursive: true });
-}
-
-// Configure multer for file uploads
-const storage = multer.diskStorage({
-  destination: function (req, file, cb) {
-    cb(null, uploadDir);
-  },
-  filename: function (req, file, cb) {
-    cb(null, Date.now() + "-" + file.originalname);
-  }
-});
-
-// Configure multer with file size limit and file type restriction
-const upload = multer({
-  storage: storage,
-  limits: { fileSize: 3 * 1024 * 1024 },
-  fileFilter: function (req, file, cb) {
-    const allowedTypes = [
-      "image/jpeg",
-      "image/jpg",
-      "image/png",
-      "image/pjpeg",
-      "image/heic",
-      "image/heif"
-    ];
-
-    if (allowedTypes.includes(file.mimetype)) {
-      cb(null, true);
-    } else {
-      console.log("Rejected file type:", file.mimetype);
-      cb(new Error("Only image files are allowed"), false);
-    }
-  }
-});
-
 // POST /api/auth/register
-router.post('/register', upload.single('profileImage'), async (req, res) => {
+router.post('/register', (req, res, next) => {
+  registerUploadFields(req, res, (err) => {
+    if (err) {
+      console.error(NID_UPLOAD_DEBUG, 'multer error', err.message || err);
+      if (err instanceof multer.MulterError) {
+        const msg = err.code === 'LIMIT_FILE_SIZE'
+          ? 'File size too large. Maximum size is 5MB per image'
+          : 'File upload error';
+        return res.status(400).json({ message: msg, error: err.message });
+      }
+      return res.status(400).json({
+        message: err.message || 'File upload error',
+        error: err.message
+      });
+    }
+    next();
+  });
+}, async (req, res) => {
+  const uploaded = req.files || {};
   try {
-    console.log("REGISTER REQUEST RECEIVED");
-    console.log("BODY:", req.body);
-    console.log("FILE:", req.file);
+    console.log(REGISTER_NID_DEBUG, 'register request received');
+    console.log(REGISTER_NID_DEBUG, 'body fields', Object.keys(req.body || {}));
+    console.log(REGISTER_NID_DEBUG, 'files', Object.keys(uploaded));
 
     const { name, email, phone, nid, password, role } = req.body;
 
+    const nidFrontFile = uploaded.nidFrontImage?.[0];
+    const nidBackFile = uploaded.nidBackImage?.[0];
+    const profileFile = uploaded.profileImage?.[0];
+
+    if (!nidFrontFile) {
+      console.log(NID_UPLOAD_DEBUG, 'missing nidFrontImage');
+      cleanupUploadedFiles(uploaded);
+      return res.status(400).json({ message: 'NID front image is required' });
+    }
+    if (!nidBackFile) {
+      console.log(NID_UPLOAD_DEBUG, 'missing nidBackImage');
+      cleanupUploadedFiles(uploaded);
+      return res.status(400).json({ message: 'NID back image is required' });
+    }
+
     // Validate all fields are provided
     if (!name || !email || !phone || !nid || !password) {
+      cleanupUploadedFiles(uploaded);
       return res.status(400).json({
         message: 'All fields are required'
       });
@@ -74,6 +73,7 @@ router.post('/register', upload.single('profileImage'), async (req, res) => {
     // Check if email already exists
     const existingUserByEmail = await User.findOne({ email });
     if (existingUserByEmail) {
+      cleanupUploadedFiles(uploaded);
       return res.status(400).json({
         message: 'Email already registered'
       });
@@ -82,6 +82,7 @@ router.post('/register', upload.single('profileImage'), async (req, res) => {
     // Check if NID already exists
     const existingUserByNID = await User.findOne({ nid });
     if (existingUserByNID) {
+      cleanupUploadedFiles(uploaded);
       return res.status(400).json({
         message: 'NID already registered'
       });
@@ -103,8 +104,13 @@ router.post('/register', upload.single('profileImage'), async (req, res) => {
     const emailOTP = generateOTP();
     const otpExpiry = new Date(Date.now() + OTP_EXPIRY_MINUTES * 60 * 1000);
 
-    // Store web-relative path for profile images (served from /uploads)
-    const profileImage = req.file ? `/uploads/profile/${req.file.filename}` : "";
+    const profileImage = fileToRelativePath(profileFile, 'profile');
+    const nidFrontImage = fileToRelativePath(nidFrontFile, 'nid');
+    const nidBackImage = fileToRelativePath(nidBackFile, 'nid');
+
+    console.log(NID_UPLOAD_DEBUG, 'upload success profile=', Boolean(profileFile));
+    console.log(NID_UPLOAD_DEBUG, 'upload success nidFront=', nidFrontImage);
+    console.log(NID_UPLOAD_DEBUG, 'upload success nidBack=', nidBackImage);
 
     // Create new user
     const user = new User({
@@ -121,7 +127,9 @@ router.post('/register', upload.single('profileImage'), async (req, res) => {
       volunteerStatus: "pending",
       emailOTP,
       otpExpiry,
-      profileImage: profileImage
+      profileImage,
+      nidFrontImage,
+      nidBackImage
     });
 
     // Save user to database
@@ -159,7 +167,7 @@ router.post('/register', upload.single('profileImage'), async (req, res) => {
     if (error instanceof multer.MulterError) {
       if (error.code === 'LIMIT_FILE_SIZE') {
         return res.status(400).json({
-          message: 'File size too large. Maximum size is 3MB',
+          message: 'File size too large. Maximum size is 5MB per image',
           error: error.message
         });
       }
