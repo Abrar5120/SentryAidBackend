@@ -11,6 +11,7 @@ const {
   streamUserNidImage,
   getAdminUserDetail
 } = require('../controllers/adminNidController');
+const { getAdminStats } = require('../controllers/adminAnalyticsController');
 const {
   getAdminReviews,
   deleteAdminReview,
@@ -281,46 +282,6 @@ router.post('/reject-volunteer/:id', protect, adminOnly, async (req, res) => {
   }
 });
 
-// GET /api/admin/stats
-// Returns statistics for the admin dashboard
-router.get('/stats', async (req, res) => {
-  try {
-    // User-capable accounts (role USER or BOTH — same basis as GET /api/admin/users)
-    const totalUsers = await User.countDocuments({
-      role: { $in: ['USER', 'BOTH'] }
-    });
-    console.log('ADMIN STATS - User-capable count:', totalUsers);
-
-    // Volunteer-capable accounts (role VOLUNTEER or BOTH — same basis as GET /api/admin/volunteers & VOLUNTEERS card)
-    const approvedVolunteers = await User.countDocuments({
-      role: { $in: ['VOLUNTEER', 'BOTH'] }
-    });
-    console.log('ADMIN STATS - Volunteer-capable count:', approvedVolunteers);
-
-    // Count pending requests (role is "VOLUNTEER" or "BOTH" AND volunteerApprovalStatus is "pending")
-    const pendingRequests = await User.countDocuments({
-      $and: [
-        { $or: [{ role: "VOLUNTEER" }, { role: "BOTH" }] },
-        { volunteerApprovalStatus: "pending" },
-        { isEmailVerified: true }
-      ]
-    });
-    console.log('ADMIN STATS - Pending requests:', pendingRequests);
-
-    // Return statistics in JSON format
-    res.status(200).json({
-      totalUsers: totalUsers,
-      approvedVolunteers: approvedVolunteers,
-      pendingRequests: pendingRequests
-    });
-  } catch (error) {
-    console.error('Error fetching admin statistics:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Server error while fetching statistics',
-      error: error.message
-    });
-  }
-});
+router.get('/stats', protect, adminOnly, getAdminStats);
 
 module.exports = router;
