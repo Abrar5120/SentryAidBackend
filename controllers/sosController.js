@@ -12,6 +12,7 @@ const RELATIONSHIP_SOS_DEBUG = 'RELATIONSHIP_SOS_DEBUG';
 const SOS_RADIUS_DEBUG = 'SOS_RADIUS_DEBUG';
 const SOS_NEARBY_RADIUS_METERS = 3000;
 const SOS_REJECT_DEBUG = 'SOS_REJECT_DEBUG';
+const SOS_ACTIVE_DEBUG = 'SOS_ACTIVE_DEBUG';
 const RELATIONSHIP_IMAGE_DEBUG = 'RELATIONSHIP_IMAGE_DEBUG';
 const VOLUNTEER_ACCEPTED_EMAIL_DEBUG = 'VOLUNTEER_ACCEPTED_EMAIL_DEBUG';
 
@@ -163,9 +164,11 @@ const createSOS = async (req, res) => {
     });
 
     if (activeSos) {
+      console.log(SOS_ACTIVE_DEBUG, 'create blocked — existing active SOS', String(activeSos._id));
       return res.status(400).json({
         success: false,
-        message: 'You already have an active SOS request.'
+        message: 'You already have an active SOS request.',
+        sos: activeSos
       });
     }
 
@@ -476,7 +479,7 @@ const getMySOS = async (req, res) => {
 // GET SOS FOR CURRENT USER (exclude cancelled)
 const getUserSOS = async (req, res) => {
   try {
-    const userId = req?.user?._id;
+    const userId = req?.user?._id || req?.user?.id;
 
     const sosList = await SOS.find({
       userId,
@@ -492,6 +495,72 @@ const getUserSOS = async (req, res) => {
     return res.status(500).json({
       success: false,
       sosList: []
+    });
+  }
+};
+
+/**
+ * GET /api/sos/my-active — single active SOS for the requester (pending or accepted).
+ */
+const getMyActiveSOS = async (req, res) => {
+  try {
+    const userId = req?.user?._id || req?.user?.id;
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: 'Not authorized'
+      });
+    }
+
+    const activeSos = await SOS.findOne({
+      userId,
+      status: { $in: ['pending', 'accepted'] }
+    })
+      .sort({ createdAt: -1 })
+      .populate('acceptedBy', 'name email');
+
+    console.log(
+      SOS_ACTIVE_DEBUG,
+      'userId=',
+      String(userId),
+      'active=',
+      activeSos ? String(activeSos._id) : 'none',
+      'status=',
+      activeSos?.status ?? 'n/a'
+    );
+
+    if (!activeSos) {
+      return res.json({
+        success: true,
+        activeSos: null,
+        volunteer: null
+      });
+    }
+
+    let volunteer = null;
+    if (activeSos.acceptedBy && typeof activeSos.acceptedBy === 'object') {
+      volunteer = {
+        id: String(activeSos.acceptedBy._id),
+        name: activeSos.acceptedBy.name || 'Volunteer',
+        email: activeSos.acceptedBy.email || null
+      };
+    }
+
+    const payload = activeSos.toObject();
+    if (payload.acceptedBy && typeof payload.acceptedBy === 'object') {
+      payload.acceptedBy = String(payload.acceptedBy._id);
+    }
+
+    return res.json({
+      success: true,
+      activeSos: payload,
+      volunteer
+    });
+  } catch (error) {
+    console.error(SOS_ACTIVE_DEBUG, 'getMyActiveSOS error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to load active SOS'
     });
   }
 };
@@ -896,6 +965,7 @@ module.exports = {
   getAvailableSOS,
   getMySOS,
   getUserSOS,
+  getMyActiveSOS,
   acceptSOS,
   completeSOS,
   cancelSOS,

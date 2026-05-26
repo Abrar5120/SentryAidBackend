@@ -3,6 +3,7 @@ const {
   createSOS,
   getAvailableSOS,
   getUserSOS,
+  getMyActiveSOS,
   getMySOS,
   acceptSOS,
   completeSOS,
@@ -21,6 +22,7 @@ router.get('/heatmap', protect, getSosHeatmap);
 router.get('/count-by-area', protect, getSosCountByArea);
 router.get('/available', protect, getAvailableSOS);
 router.get('/my', protect, getUserSOS);
+router.get('/my-active', protect, getMyActiveSOS);
 router.get('/my-sos', protect, getMySOS);
 router.get('/location/:sosId', protect, getSosVolunteerLocation);
 router.post('/accept', protect, acceptSOS);
