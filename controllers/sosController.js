@@ -28,6 +28,42 @@ const ACTIVE_USER_SOS_STATUSES = ['pending', 'accepted', 'awaiting_user_confirma
 const ACTIVE_VOLUNTEER_SOS_STATUSES = ['accepted', 'awaiting_user_confirmation'];
 const VOLUNTEER_SOS_DEBUG = 'VOLUNTEER_SOS_DEBUG';
 const VOLUNTEER_CONTACT_DEBUG = 'VOLUNTEER_CONTACT_DEBUG';
+const SELF_SOS_GUARD_DEBUG = 'SELF_SOS_GUARD_DEBUG';
+const SELF_SOS_BLOCKED_MESSAGE = 'You cannot accept an SOS created by your own account.';
+
+function normalizeIdentityPhone(phone) {
+  if (phone == null) {
+    return '';
+  }
+  return String(phone).replace(/\D/g, '');
+}
+
+function normalizeIdentityNid(nid) {
+  if (nid == null) {
+    return '';
+  }
+  return String(nid).trim().toUpperCase();
+}
+
+/**
+ * Returns 'phone' | 'nid' if volunteer appears to be the same person as the SOS owner.
+ */
+function detectSelfSosIdentityMatch(volunteer, sosOwner) {
+  if (!volunteer || !sosOwner) {
+    return null;
+  }
+  const volunteerPhone = normalizeIdentityPhone(volunteer.phone);
+  const ownerPhone = normalizeIdentityPhone(sosOwner.phone);
+  if (volunteerPhone && ownerPhone && volunteerPhone === ownerPhone) {
+    return 'phone';
+  }
+  const volunteerNid = normalizeIdentityNid(volunteer.nid);
+  const ownerNid = normalizeIdentityNid(sosOwner.nid);
+  if (volunteerNid && ownerNid && volunteerNid === ownerNid) {
+    return 'nid';
+  }
+  return null;
+}
 
 function buildVolunteerAssignedChatMessage(volunteerName, volunteerPhone, locationLink) {
   const name = volunteerName && String(volunteerName).trim() ? volunteerName : 'Volunteer';
@@ -663,7 +699,7 @@ const acceptSOS = async (req, res) => {
     }
 
     const volunteer = await User.findById(volunteerDbId != null ? volunteerDbId : volunteerId)
-      .select('volunteerAvailabilityStatus name phone');
+      .select('volunteerAvailabilityStatus name phone nid');
     if (!volunteer || volunteer.volunteerAvailabilityStatus !== 'active') {
       return res.status(403).json({
         success: false,
@@ -701,6 +737,28 @@ const acceptSOS = async (req, res) => {
             'This SOS was sent to emergency contacts only. Only registered emergency contacts can accept it.'
         });
       }
+    }
+
+    const sosOwner = await User.findById(existingSos.userId).select('phone nid');
+    console.log(SELF_SOS_GUARD_DEBUG, 'volunteerId=', String(volunteerDbId != null ? volunteerDbId : volunteerId));
+    console.log(SELF_SOS_GUARD_DEBUG, 'userId=', String(existingSos.userId));
+
+    const selfMatch = detectSelfSosIdentityMatch(volunteer, sosOwner);
+    if (selfMatch === 'phone') {
+      console.log(SELF_SOS_GUARD_DEBUG, 'phone match detected');
+      console.log(SELF_SOS_GUARD_DEBUG, 'acceptance blocked');
+      return res.status(403).json({
+        success: false,
+        message: SELF_SOS_BLOCKED_MESSAGE
+      });
+    }
+    if (selfMatch === 'nid') {
+      console.log(SELF_SOS_GUARD_DEBUG, 'nid match detected');
+      console.log(SELF_SOS_GUARD_DEBUG, 'acceptance blocked');
+      return res.status(403).json({
+        success: false,
+        message: SELF_SOS_BLOCKED_MESSAGE
+      });
     }
 
     // Atomic conditional update to avoid race condition
