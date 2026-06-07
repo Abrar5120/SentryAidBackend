@@ -23,6 +23,21 @@ const SOS_COMPLETE_DEBUG = 'SOS_COMPLETE_DEBUG';
 const ACTIVE_USER_SOS_STATUSES = ['pending', 'accepted', 'awaiting_user_confirmation'];
 const ACTIVE_VOLUNTEER_SOS_STATUSES = ['accepted', 'awaiting_user_confirmation'];
 const VOLUNTEER_SOS_DEBUG = 'VOLUNTEER_SOS_DEBUG';
+const VOLUNTEER_CONTACT_DEBUG = 'VOLUNTEER_CONTACT_DEBUG';
+
+const VOLUNTEER_ASSIGNED_SOS_STATUSES = ['accepted', 'awaiting_user_confirmation'];
+
+function buildVolunteerAssignedChatMessage(volunteerName, volunteerPhone, locationLink) {
+  const name = volunteerName && String(volunteerName).trim() ? volunteerName : 'Volunteer';
+  const phone = volunteerPhone && String(volunteerPhone).trim() ? volunteerPhone : 'Not available';
+  return (
+    'Volunteer Assigned\n\n'
+    + `Name: ${name}\n`
+    + `Phone: ${phone}\n\n`
+    + 'The volunteer is on the way to assist you.\n\n'
+    + `Location: ${locationLink}`
+  );
+}
 
 function isActiveVolunteerSosStatus(status) {
   return typeof status === 'string' && ACTIVE_VOLUNTEER_SOS_STATUSES.includes(status);
@@ -562,7 +577,7 @@ const getMyActiveSOS = async (req, res) => {
       status: { $in: ACTIVE_USER_SOS_STATUSES }
     })
       .sort({ createdAt: -1 })
-      .populate('acceptedBy', 'name email');
+      .populate('acceptedBy', 'name email phone');
 
     console.log(
       SOS_ACTIVE_DEBUG,
@@ -587,7 +602,8 @@ const getMyActiveSOS = async (req, res) => {
       volunteer = {
         id: String(activeSos.acceptedBy._id),
         name: activeSos.acceptedBy.name || 'Volunteer',
-        email: activeSos.acceptedBy.email || null
+        email: activeSos.acceptedBy.email || null,
+        phone: activeSos.acceptedBy.phone || null
       };
     }
 
@@ -637,7 +653,7 @@ const acceptSOS = async (req, res) => {
     }
 
     const volunteer = await User.findById(volunteerDbId != null ? volunteerDbId : volunteerId)
-      .select('volunteerAvailabilityStatus');
+      .select('volunteerAvailabilityStatus name phone');
     if (!volunteer || volunteer.volunteerAvailabilityStatus !== 'active') {
       return res.status(403).json({
         success: false,
@@ -698,9 +714,16 @@ const acceptSOS = async (req, res) => {
       });
     }
 
+    const volunteerName = volunteer?.name || 'Volunteer';
+    const volunteerPhone = volunteer?.phone || null;
+
     try {
       const locationLink = `https://maps.google.com/?q=${updated.volunteerLatitude},${updated.volunteerLongitude}`;
-      const chatMessage = 'Volunteer accepted SOS.\nLocation: ' + locationLink;
+      const chatMessage = buildVolunteerAssignedChatMessage(
+        volunteerName,
+        volunteerPhone,
+        locationLink
+      );
 
       const message = new Message({
         sosId: updated._id,
@@ -713,13 +736,21 @@ const acceptSOS = async (req, res) => {
       console.error('acceptSOS: failed to create chat message', msgErr);
     }
 
+    console.log(VOLUNTEER_CONTACT_DEBUG, 'volunteer assigned');
+    console.log(VOLUNTEER_CONTACT_DEBUG, 'phone=', volunteerPhone || 'none');
+
     const volunteerIdForNotify = volunteerDbId != null ? volunteerDbId : volunteerId;
     void notifyEmergencyContactsOnVolunteerAccept(updated, volunteerIdForNotify);
 
     return res.json({
       success: true,
       message: 'SOS accepted',
-      sos: updated
+      sos: updated,
+      volunteerId: String(volunteerIdForNotify),
+      volunteerName,
+      volunteerPhone,
+      volunteerLatitude: updated.volunteerLatitude,
+      volunteerLongitude: updated.volunteerLongitude
     });
   } catch (error) {
     console.error('acceptSOS error:', error);
@@ -1014,9 +1045,9 @@ const getSosVolunteerLocation = async (req, res) => {
       });
     }
 
-    const sos = await SOS.findById(sosId).select(
-      'userId acceptedBy volunteerLatitude volunteerLongitude lastUpdatedAt'
-    );
+    const sos = await SOS.findById(sosId)
+      .select('userId acceptedBy status volunteerLatitude volunteerLongitude lastUpdatedAt')
+      .populate('acceptedBy', 'name phone');
 
     if (!sos) {
       return res.status(404).json({
@@ -1025,9 +1056,9 @@ const getSosVolunteerLocation = async (req, res) => {
       });
     }
 
-    const uid = String(user._id);
+    const uid = String(user._id || user.id);
     const isOwner = String(sos.userId) === uid;
-    const isVolunteer = sos.acceptedBy != null && String(sos.acceptedBy) === uid;
+    const isVolunteer = sos.acceptedBy != null && String(sos.acceptedBy._id || sos.acceptedBy) === uid;
 
     if (!isOwner && !isVolunteer) {
       return res.status(403).json({
@@ -1036,11 +1067,29 @@ const getSosVolunteerLocation = async (req, res) => {
       });
     }
 
+    let volunteerId = null;
+    let volunteerName = null;
+    let volunteerPhone = null;
+    const volunteerAssigned = VOLUNTEER_ASSIGNED_SOS_STATUSES.includes(sos.status) && sos.acceptedBy;
+    if (volunteerAssigned) {
+      if (typeof sos.acceptedBy === 'object' && sos.acceptedBy !== null) {
+        volunteerId = String(sos.acceptedBy._id);
+        volunteerName = sos.acceptedBy.name || null;
+        volunteerPhone = sos.acceptedBy.phone || null;
+      } else if (sos.acceptedBy) {
+        volunteerId = String(sos.acceptedBy);
+      }
+    }
+
     return res.json({
       success: true,
       volunteerLatitude: sos.volunteerLatitude,
       volunteerLongitude: sos.volunteerLongitude,
-      lastUpdatedAt: sos.lastUpdatedAt
+      lastUpdatedAt: sos.lastUpdatedAt,
+      sosStatus: sos.status,
+      volunteerId,
+      volunteerName,
+      volunteerPhone
     });
   } catch (error) {
     console.error('getSosVolunteerLocation error:', error);
