@@ -67,8 +67,13 @@ const SOSSchema = new mongoose.Schema({
   },
   status: {
     type: String,
-    enum: ["pending", "accepted", "completed", "cancelled"],
+    enum: ["pending", "accepted", "awaiting_user_confirmation", "completed", "cancelled"],
     default: "pending"
+  },
+  /** Set when the assigned volunteer marks assistance as provided (user must confirm completion). */
+  completionRequestedAt: {
+    type: Date,
+    default: null
   },
   acceptedBy: {
     type: mongoose.Schema.Types.ObjectId,

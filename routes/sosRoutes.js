@@ -6,7 +6,8 @@ const {
   getMyActiveSOS,
   getMySOS,
   acceptSOS,
-  completeSOS,
+  requestSosCompletion,
+  userCompleteSOS,
   cancelSOS,
   rejectSOS,
   updateSosLocation,
@@ -26,7 +27,8 @@ router.get('/my-active', protect, getMyActiveSOS);
 router.get('/my-sos', protect, getMySOS);
 router.get('/location/:sosId', protect, getSosVolunteerLocation);
 router.post('/accept', protect, acceptSOS);
-router.post('/complete', protect, completeSOS);
+router.post('/request-completion', protect, requestSosCompletion);
+router.post('/user-complete', protect, userCompleteSOS);
 router.post('/cancel', protect, cancelSOS);
 router.post('/reject', protect, rejectSOS);
 router.post('/update-location', protect, updateSosLocation);

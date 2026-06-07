@@ -32,7 +32,9 @@ const getAdminStats = async (req, res) => {
       SOS.countDocuments({ status: 'accepted' }),
       SOS.countDocuments({ status: 'completed' }),
       SOS.countDocuments({ status: 'cancelled' }),
-      SOS.countDocuments({ status: { $in: ['pending', 'accepted'] } })
+      SOS.countDocuments({
+        status: { $in: ['pending', 'accepted', 'awaiting_user_confirmation'] }
+      })
     ]);
 
     const payload = {

@@ -128,7 +128,67 @@ async function sendNearbyVolunteerSosNotifications(sos) {
   console.log(SOS_FCM_DEBUG, 'failure count', totalFailure);
 }
 
+/**
+ * Notify the SOS requester that their volunteer marked assistance as provided.
+ */
+async function sendAssistanceProvidedNotification(sos) {
+  if (!sos || !sos._id || !sos.userId) {
+    console.warn(SOS_FCM_DEBUG, 'assistance-provided skip — missing sos or userId');
+    return;
+  }
+
+  const user = await User.findById(sos.userId).select('fcmTokens');
+  if (!user || !Array.isArray(user.fcmTokens) || !user.fcmTokens.length) {
+    console.log(SOS_FCM_DEBUG, 'assistance-provided skip — no user tokens');
+    return;
+  }
+
+  const tokenSet = new Set();
+  for (const t of user.fcmTokens) {
+    if (t && typeof t === 'string' && t.trim()) {
+      tokenSet.add(t.trim());
+    }
+  }
+  const tokens = Array.from(tokenSet);
+  if (!tokens.length) {
+    return;
+  }
+
+  if (!initFirebaseAdminIfPossible()) {
+    console.warn(SOS_FCM_DEBUG, 'assistance-provided skip — Firebase not configured');
+    return;
+  }
+
+  const messaging = admin.messaging();
+  const sosId = String(sos._id);
+  const title = 'Assistance provided';
+  const body =
+    'Your volunteer has marked assistance as provided. Please confirm completion if your issue has been resolved.';
+
+  const BATCH = 500;
+  for (let i = 0; i < tokens.length; i += BATCH) {
+    const batch = tokens.slice(i, i + BATCH);
+    // eslint-disable-next-line no-await-in-loop
+    await messaging.sendEachForMulticast({
+      tokens: batch,
+      data: {
+        type: 'SOS_ASSISTANCE_PROVIDED',
+        sosId,
+        targetScreen: 'user_dashboard',
+        title,
+        body
+      },
+      android: {
+        priority: 'high'
+      }
+    });
+  }
+
+  console.log(SOS_FCM_DEBUG, 'assistance-provided sent to', tokens.length, 'token(s) sosId=', sosId);
+}
+
 module.exports = {
   sendNearbyVolunteerSosNotifications,
+  sendAssistanceProvidedNotification,
   SOS_NEARBY_RADIUS_METERS
 };

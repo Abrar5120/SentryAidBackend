@@ -4,7 +4,10 @@ const User = require('../models/User');
 const EmergencyContact = require('../models/EmergencyContact');
 const { sendSosEmergencyEmail, SOS_TARGET_DEBUG } = require('../utils/sendSosEmergencyEmail');
 const sendVolunteerAcceptedEmail = require('../utils/sendVolunteerAcceptedEmail');
-const { sendNearbyVolunteerSosNotifications } = require('../services/fcmSosService');
+const {
+  sendNearbyVolunteerSosNotifications,
+  sendAssistanceProvidedNotification
+} = require('../services/fcmSosService');
 const { reverseGeocodeArea, GEOCODE_TIMEOUT_MS } = require('../utils/reverseGeocodeArea');
 
 const VALID_SOS_TARGETS = ['volunteers', 'contacts', 'both'];
@@ -15,6 +18,10 @@ const SOS_REJECT_DEBUG = 'SOS_REJECT_DEBUG';
 const SOS_ACTIVE_DEBUG = 'SOS_ACTIVE_DEBUG';
 const RELATIONSHIP_IMAGE_DEBUG = 'RELATIONSHIP_IMAGE_DEBUG';
 const VOLUNTEER_ACCEPTED_EMAIL_DEBUG = 'VOLUNTEER_ACCEPTED_EMAIL_DEBUG';
+const SOS_COMPLETE_DEBUG = 'SOS_COMPLETE_DEBUG';
+
+const ACTIVE_USER_SOS_STATUSES = ['pending', 'accepted', 'awaiting_user_confirmation'];
+const ACTIVE_VOLUNTEER_SOS_STATUSES = ['accepted', 'awaiting_user_confirmation'];
 
 function isValidContactEmail(email) {
   if (!email || typeof email !== 'string') {
@@ -160,7 +167,7 @@ const createSOS = async (req, res) => {
 
     const activeSos = await SOS.findOne({
       userId,
-      status: { $in: ['pending', 'accepted'] }
+      status: { $in: ACTIVE_USER_SOS_STATUSES }
     });
 
     if (activeSos) {
@@ -451,14 +458,14 @@ const getAvailableSOS = async (req, res) => {
   }
 };
 
-// GET SOS ACCEPTED BY CURRENT VOLUNTEER (only active accepted — not completed / pending / cancelled)
+// GET SOS ACCEPTED BY CURRENT VOLUNTEER (accepted or awaiting user confirmation)
 const getMySOS = async (req, res) => {
   try {
     const volunteerId = req?.user?.id;
 
     const sosList = await SOS.find({
       acceptedBy: volunteerId,
-      status: 'accepted'
+      status: { $in: ACTIVE_VOLUNTEER_SOS_STATUSES }
     }).sort({ createdAt: -1 });
 
     console.log('[getMySOS] returned SOS count:', sosList.length);
@@ -500,7 +507,7 @@ const getUserSOS = async (req, res) => {
 };
 
 /**
- * GET /api/sos/my-active — single active SOS for the requester (pending or accepted).
+ * GET /api/sos/my-active — single active SOS for the requester.
  */
 const getMyActiveSOS = async (req, res) => {
   try {
@@ -514,7 +521,7 @@ const getMyActiveSOS = async (req, res) => {
 
     const activeSos = await SOS.findOne({
       userId,
-      status: { $in: ['pending', 'accepted'] }
+      status: { $in: ACTIVE_USER_SOS_STATUSES }
     })
       .sort({ createdAt: -1 })
       .populate('acceptedBy', 'name email');
@@ -685,13 +692,11 @@ const acceptSOS = async (req, res) => {
   }
 };
 
-// 4. COMPLETE SOS (volunteer must have accepted it; status must still be "accepted")
-const completeSOS = async (req, res) => {
+// 4a. REQUEST COMPLETION — volunteer marks assistance provided; user must confirm
+const requestSosCompletion = async (req, res) => {
   try {
     const { sosId } = req.body;
     const volunteerId = req?.user?.id;
-
-    console.log('[completeSOS] called, sosId:', sosId);
 
     if (!sosId || !volunteerId) {
       return res.status(400).json({
@@ -709,14 +714,62 @@ const completeSOS = async (req, res) => {
     if (!sos) {
       return res.status(403).json({
         success: false,
-        message: 'You can only complete SOS requests you accepted that are still active.'
+        message: 'You can only mark assistance for SOS requests you accepted that are still active.'
+      });
+    }
+
+    sos.status = 'awaiting_user_confirmation';
+    sos.completionRequestedAt = new Date();
+    await sos.save();
+
+    console.log(SOS_COMPLETE_DEBUG, 'volunteer requested completion sosId=', sosId);
+
+    void sendAssistanceProvidedNotification(sos);
+
+    return res.json({
+      success: true,
+      message: 'Assistance marked as provided. Waiting for user confirmation.',
+      sos
+    });
+  } catch (error) {
+    console.error('requestSosCompletion error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to mark assistance as provided'
+    });
+  }
+};
+
+// 4b. USER CONFIRM COMPLETION — only the SOS creator may finalize to completed
+const userCompleteSOS = async (req, res) => {
+  try {
+    const { sosId } = req.body;
+    const userId = req?.user?._id || req?.user?.id;
+
+    if (!sosId || !userId) {
+      return res.status(400).json({
+        success: false,
+        message: 'sosId is required'
+      });
+    }
+
+    const sos = await SOS.findOne({
+      _id: sosId,
+      userId,
+      status: 'awaiting_user_confirmation'
+    });
+
+    if (!sos) {
+      return res.status(403).json({
+        success: false,
+        message: 'You can only complete your own SOS after your volunteer has marked assistance as provided.'
       });
     }
 
     sos.status = 'completed';
     await sos.save();
 
-    console.log('[completeSOS] saved to MongoDB, sosId:', sosId, 'updated status:', sos.status);
+    console.log(SOS_COMPLETE_DEBUG, 'user completed SOS sosId=', sosId);
 
     return res.json({
       success: true,
@@ -724,7 +777,7 @@ const completeSOS = async (req, res) => {
       sos
     });
   } catch (error) {
-    console.error('completeSOS error:', error);
+    console.error('userCompleteSOS error:', error);
     return res.status(500).json({
       success: false,
       message: 'Failed to complete SOS'
@@ -967,7 +1020,8 @@ module.exports = {
   getUserSOS,
   getMyActiveSOS,
   acceptSOS,
-  completeSOS,
+  requestSosCompletion,
+  userCompleteSOS,
   cancelSOS,
   rejectSOS,
   updateSosLocation,
