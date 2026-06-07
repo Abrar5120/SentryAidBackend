@@ -107,6 +107,11 @@ const SOSSchema = new mongoose.Schema({
   reviewSubmitted: {
     type: Boolean,
     default: false
+  },
+  /** True after 5-minute no-accept escalation emails were sent to emergency contacts */
+  escalationEmailSent: {
+    type: Boolean,
+    default: false
   }
 });
 

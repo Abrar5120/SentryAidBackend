@@ -2,6 +2,7 @@ const mongoose = require('mongoose');
 const User = require('../models/User');
 const bcrypt = require('bcrypt');
 const { repairReviewSubmittedFlags } = require('../services/repairReviewSubmitted');
+const { recoverPendingEscalations } = require('../services/sosEscalationService');
 
 const connectDB = async () => {
   try {
@@ -9,6 +10,7 @@ const connectDB = async () => {
     console.log('MongoDB Connected');
 
     await repairReviewSubmittedFlags();
+    await recoverPendingEscalations();
 
     // Create default admin account if it doesn't exist
     await createDefaultAdmin();

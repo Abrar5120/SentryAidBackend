@@ -8,6 +8,10 @@ const {
   sendNearbyVolunteerSosNotifications,
   sendAssistanceProvidedNotification
 } = require('../services/fcmSosService');
+const {
+  scheduleSosEscalation,
+  cancelSosEscalation
+} = require('../services/sosEscalationService');
 const { reverseGeocodeArea, GEOCODE_TIMEOUT_MS } = require('../utils/reverseGeocodeArea');
 
 const VALID_SOS_TARGETS = ['volunteers', 'contacts', 'both'];
@@ -201,6 +205,14 @@ const createSOS = async (req, res) => {
         success: false,
         message: 'You already have an active SOS request.',
         sos: activeSos
+      });
+    }
+
+    const emergencyContactCount = await EmergencyContact.countDocuments({ userId });
+    if (emergencyContactCount < 1) {
+      return res.status(400).json({
+        success: false,
+        message: 'At least one emergency contact is required before sending SOS.'
       });
     }
 
@@ -737,6 +749,8 @@ const acceptSOS = async (req, res) => {
       console.error('acceptSOS: failed to create chat message', msgErr);
     }
 
+    cancelSosEscalation(updated._id);
+
     const volunteerIdForNotify = volunteerDbId != null ? volunteerDbId : volunteerId;
     void notifyEmergencyContactsOnVolunteerAccept(updated, volunteerIdForNotify);
 
@@ -882,6 +896,8 @@ const cancelSOS = async (req, res) => {
 
     sos.status = 'cancelled';
     await sos.save();
+
+    cancelSosEscalation(sosId);
 
     return res.json({
       success: true,
