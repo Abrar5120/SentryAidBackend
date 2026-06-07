@@ -22,6 +22,18 @@ const SOS_COMPLETE_DEBUG = 'SOS_COMPLETE_DEBUG';
 
 const ACTIVE_USER_SOS_STATUSES = ['pending', 'accepted', 'awaiting_user_confirmation'];
 const ACTIVE_VOLUNTEER_SOS_STATUSES = ['accepted', 'awaiting_user_confirmation'];
+const VOLUNTEER_SOS_DEBUG = 'VOLUNTEER_SOS_DEBUG';
+
+function isActiveVolunteerSosStatus(status) {
+  return typeof status === 'string' && ACTIVE_VOLUNTEER_SOS_STATUSES.includes(status);
+}
+
+function filterActiveVolunteerSosList(sosList) {
+  if (!Array.isArray(sosList)) {
+    return [];
+  }
+  return sosList.filter((sos) => isActiveVolunteerSosStatus(sos?.status));
+}
 
 function isValidContactEmail(email) {
   if (!email || typeof email !== 'string') {
@@ -458,17 +470,43 @@ const getAvailableSOS = async (req, res) => {
   }
 };
 
-// GET SOS ACCEPTED BY CURRENT VOLUNTEER (accepted or awaiting user confirmation)
+// GET SOS ACCEPTED BY CURRENT VOLUNTEER — active only (accepted / awaiting_user_confirmation)
 const getMySOS = async (req, res) => {
   try {
-    const volunteerId = req?.user?.id;
+    const volunteerId = req?.user?._id || req?.user?.id;
+    console.log(VOLUNTEER_SOS_DEBUG, 'fetching active accepted SOS');
 
-    const sosList = await SOS.find({
+    if (!volunteerId) {
+      console.log(VOLUNTEER_SOS_DEBUG, 'active count=', 0);
+      return res.json({
+        success: true,
+        sosList: []
+      });
+    }
+
+    const rawList = await SOS.find({
       acceptedBy: volunteerId,
       status: { $in: ACTIVE_VOLUNTEER_SOS_STATUSES }
     }).sort({ createdAt: -1 });
 
-    console.log('[getMySOS] returned SOS count:', sosList.length);
+    const sosList = filterActiveVolunteerSosList(rawList);
+    const filteredOut = rawList.length - sosList.length;
+    if (filteredOut > 0) {
+      for (const sos of rawList) {
+        if (!isActiveVolunteerSosStatus(sos?.status)) {
+          console.log(
+            VOLUNTEER_SOS_DEBUG,
+            'filtered completed SOS',
+            'id=',
+            sos?._id ? String(sos._id) : 'n/a',
+            'status=',
+            sos?.status ?? 'n/a'
+          );
+        }
+      }
+    }
+
+    console.log(VOLUNTEER_SOS_DEBUG, 'active count=', sosList.length);
 
     return res.json({
       success: true,
