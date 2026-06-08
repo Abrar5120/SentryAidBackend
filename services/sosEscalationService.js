@@ -2,6 +2,12 @@ const SOS = require('../models/SOS');
 const User = require('../models/User');
 const EmergencyContact = require('../models/EmergencyContact');
 const { sendSosEmergencyEmail } = require('../utils/sendSosEmergencyEmail');
+const {
+  hasValidSosLocation,
+  repairSosLocationOnDocument,
+  saveSosWithLocationRepair,
+  repairInvalidSosLocationsInDb
+} = require('../utils/sosLocationRepair');
 
 const SOS_ESCALATION_DEBUG = 'SOS_ESCALATION_DEBUG';
 const SOS_ESCALATION_DELAY_MS =
@@ -64,60 +70,87 @@ function buildEscalationEmailHtml(user, sos) {
 }
 
 /**
+ * Ensure SOS location is valid or repairable before any write.
+ * @returns {boolean} false when escalation should be skipped for this document
+ */
+function ensureSosLocationOrSkip(sos) {
+  if (hasValidSosLocation(sos)) {
+    return true;
+  }
+
+  const repair = repairSosLocationOnDocument(sos);
+  if (repair.ok) {
+    console.log(SOS_ESCALATION_DEBUG, 'repaired invalid location', String(sos._id));
+    return true;
+  }
+
+  console.warn(SOS_ESCALATION_DEBUG, 'skipped invalid SOS', String(sos._id));
+  return false;
+}
+
+/**
  * Send escalation emails once for a still-pending SOS.
  */
 async function runSosEscalationCheck(sosId) {
-  console.log(SOS_ESCALATION_DEBUG, 'checking SOS', String(sosId));
+  try {
+    console.log(SOS_ESCALATION_DEBUG, 'checking SOS', String(sosId));
 
-  const sos = await SOS.findById(sosId);
-  if (!sos) {
-    return;
-  }
-
-  if (sos.status !== 'pending') {
-    console.log(SOS_ESCALATION_DEBUG, 'skipped accepted SOS', String(sosId), 'status=', sos.status);
-    return;
-  }
-
-  if (sos.escalationEmailSent) {
-    console.log(SOS_ESCALATION_DEBUG, 'skipped duplicate escalation', String(sosId));
-    return;
-  }
-
-  console.log(SOS_ESCALATION_DEBUG, 'still pending', String(sosId));
-
-  const contacts = await EmergencyContact.find({ userId: sos.userId });
-  const validContacts = contacts.filter((c) => isValidContactEmail(c.email));
-
-  if (!validContacts.length) {
-    console.log(SOS_ESCALATION_DEBUG, 'no emergency contacts to notify', String(sosId));
-    sos.escalationEmailSent = true;
-    await sos.save();
-    return;
-  }
-
-  const user = await User.findById(sos.userId).select('name phone');
-  const subject = `URGENT: SOS escalation — no volunteer response for ${user?.name || 'SentryAid user'}`;
-  const html = buildEscalationEmailHtml(user, sos);
-
-  console.log(SOS_ESCALATION_DEBUG, 'sending emails', 'count=', validContacts.length, 'sosId=', String(sosId));
-
-  let sentAny = false;
-  for (const c of validContacts) {
-    const email = c.email.trim().toLowerCase();
-    try {
-      await sendSosEmergencyEmail(email, subject, html);
-      sentAny = true;
-    } catch (err) {
-      console.error(SOS_ESCALATION_DEBUG, 'email failed for', email, err.message || err);
+    const sos = await SOS.findById(sosId);
+    if (!sos) {
+      return;
     }
-  }
 
-  sos.escalationEmailSent = true;
-  await sos.save();
+    if (sos.status !== 'pending') {
+      console.log(SOS_ESCALATION_DEBUG, 'skipped accepted SOS', String(sosId), 'status=', sos.status);
+      return;
+    }
 
-  if (sentAny) {
-    console.log(SOS_ESCALATION_DEBUG, 'success', String(sosId));
+    if (sos.escalationEmailSent) {
+      console.log(SOS_ESCALATION_DEBUG, 'skipped duplicate escalation', String(sosId));
+      return;
+    }
+
+    if (!ensureSosLocationOrSkip(sos)) {
+      return;
+    }
+
+    console.log(SOS_ESCALATION_DEBUG, 'still pending', String(sosId));
+
+    const contacts = await EmergencyContact.find({ userId: sos.userId });
+    const validContacts = contacts.filter((c) => isValidContactEmail(c.email));
+
+    if (!validContacts.length) {
+      console.log(SOS_ESCALATION_DEBUG, 'no emergency contacts to notify', String(sosId));
+      sos.escalationEmailSent = true;
+      await saveSosWithLocationRepair(sos);
+      return;
+    }
+
+    const user = await User.findById(sos.userId).select('name phone');
+    const subject = `URGENT: SOS escalation — no volunteer response for ${user?.name || 'SentryAid user'}`;
+    const html = buildEscalationEmailHtml(user, sos);
+
+    console.log(SOS_ESCALATION_DEBUG, 'sending emails', 'count=', validContacts.length, 'sosId=', String(sosId));
+
+    let sentAny = false;
+    for (const c of validContacts) {
+      const email = c.email.trim().toLowerCase();
+      try {
+        await sendSosEmergencyEmail(email, subject, html);
+        sentAny = true;
+      } catch (err) {
+        console.error(SOS_ESCALATION_DEBUG, 'email failed for', email, err.message || err);
+      }
+    }
+
+    sos.escalationEmailSent = true;
+    await saveSosWithLocationRepair(sos);
+
+    if (sentAny) {
+      console.log(SOS_ESCALATION_DEBUG, 'success', String(sosId));
+    }
+  } catch (err) {
+    console.error(SOS_ESCALATION_DEBUG, 'escalation check failed', String(sosId), err.message || err);
   }
 }
 
@@ -151,20 +184,37 @@ function cancelSosEscalation(sosId) {
  * On server start: process pending SOS older than 5 minutes that were not escalated yet.
  */
 async function recoverPendingEscalations() {
-  const cutoff = new Date(Date.now() - SOS_ESCALATION_DELAY_MS);
-  const rows = await SOS.find({
-    status: 'pending',
-    escalationEmailSent: { $ne: true },
-    createdAt: { $lte: cutoff }
-  }).select('_id');
+  try {
+    await repairInvalidSosLocationsInDb(SOS);
 
-  if (rows.length) {
-    console.log(SOS_ESCALATION_DEBUG, 'recovering', rows.length, 'pending escalation(s)');
-  }
+    const cutoff = new Date(Date.now() - SOS_ESCALATION_DELAY_MS);
+    const rows = await SOS.find({
+      status: 'pending',
+      escalationEmailSent: { $ne: true },
+      createdAt: { $lte: cutoff }
+    }).select('_id');
 
-  for (const row of rows) {
-    // eslint-disable-next-line no-await-in-loop
-    await runSosEscalationCheck(row._id);
+    if (rows.length) {
+      console.log(SOS_ESCALATION_DEBUG, 'recovering', rows.length, 'pending escalation(s)');
+    }
+
+    for (const row of rows) {
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        await runSosEscalationCheck(row._id);
+      } catch (err) {
+        console.error(
+          SOS_ESCALATION_DEBUG,
+          'recovery item failed',
+          String(row._id),
+          err.message || err
+        );
+      }
+    }
+
+    console.log(SOS_ESCALATION_DEBUG, 'recovery completed');
+  } catch (err) {
+    console.error(SOS_ESCALATION_DEBUG, 'recovery failed', err.message || err);
   }
 }
 

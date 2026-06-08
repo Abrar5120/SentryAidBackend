@@ -10,7 +10,12 @@ const connectDB = async () => {
     console.log('MongoDB Connected');
 
     await repairReviewSubmittedFlags();
-    await recoverPendingEscalations();
+
+    try {
+      await recoverPendingEscalations();
+    } catch (escalationErr) {
+      console.error('SOS_ESCALATION_DEBUG', 'startup recovery error (non-fatal)', escalationErr.message || escalationErr);
+    }
 
     // Create default admin account if it doesn't exist
     await createDefaultAdmin();
