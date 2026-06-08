@@ -187,8 +187,68 @@ async function sendAssistanceProvidedNotification(sos) {
   console.log(SOS_FCM_DEBUG, 'assistance-provided sent to', tokens.length, 'token(s) sosId=', sosId);
 }
 
+/**
+ * Notify the SOS requester that their SOS was escalated after 5 minutes.
+ */
+async function sendSosEscalatedUserNotification(sos) {
+  if (!sos || !sos._id || !sos.userId) {
+    console.warn(SOS_FCM_DEBUG, 'escalated-user skip — missing sos or userId');
+    return;
+  }
+
+  const user = await User.findById(sos.userId).select('fcmTokens');
+  if (!user || !Array.isArray(user.fcmTokens) || !user.fcmTokens.length) {
+    console.log(SOS_FCM_DEBUG, 'escalated-user skip — no user tokens');
+    return;
+  }
+
+  const tokenSet = new Set();
+  for (const t of user.fcmTokens) {
+    if (t && typeof t === 'string' && t.trim()) {
+      tokenSet.add(t.trim());
+    }
+  }
+  const tokens = Array.from(tokenSet);
+  if (!tokens.length) {
+    return;
+  }
+
+  if (!initFirebaseAdminIfPossible()) {
+    console.warn(SOS_FCM_DEBUG, 'escalated-user skip — Firebase not configured');
+    return;
+  }
+
+  const messaging = admin.messaging();
+  const sosId = String(sos._id);
+  const title = 'SOS Escalated';
+  const body =
+    'No volunteer accepted your SOS within 5 minutes. Your emergency contacts and SentryAid administrators have been notified.';
+
+  const BATCH = 500;
+  for (let i = 0; i < tokens.length; i += BATCH) {
+    const batch = tokens.slice(i, i + BATCH);
+    // eslint-disable-next-line no-await-in-loop
+    await messaging.sendEachForMulticast({
+      tokens: batch,
+      data: {
+        type: 'SOS_ESCALATED',
+        sosId,
+        targetScreen: 'user_dashboard',
+        title,
+        body
+      },
+      android: {
+        priority: 'high'
+      }
+    });
+  }
+
+  console.log(SOS_FCM_DEBUG, 'escalated-user sent to', tokens.length, 'token(s) sosId=', sosId);
+}
+
 module.exports = {
   sendNearbyVolunteerSosNotifications,
   sendAssistanceProvidedNotification,
+  sendSosEscalatedUserNotification,
   SOS_NEARBY_RADIUS_METERS
 };

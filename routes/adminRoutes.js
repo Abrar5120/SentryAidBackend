@@ -13,6 +13,10 @@ const {
 } = require('../controllers/adminNidController');
 const { getAdminStats } = require('../controllers/adminAnalyticsController');
 const {
+  getEscalatedSosList,
+  resolveEscalatedSos
+} = require('../controllers/adminEscalatedSosController');
+const {
   getAdminReviews,
   deleteAdminReview,
   getAdminVolunteerRankings
@@ -317,5 +321,7 @@ router.post('/reject-volunteer/:id', protect, adminOnly, async (req, res) => {
 });
 
 router.get('/stats', protect, adminOnly, getAdminStats);
+router.get('/escalated-sos', protect, adminOnly, getEscalatedSosList);
+router.post('/escalated-sos/:id/resolve', protect, adminOnly, resolveEscalatedSos);
 
 module.exports = router;

@@ -18,7 +18,8 @@ const getAdminStats = async (req, res) => {
       acceptedSOS,
       completedSOS,
       cancelledSOS,
-      activeSOS
+      activeSOS,
+      escalatedSOS
     ] = await Promise.all([
       User.countDocuments({ role: { $in: ['USER', 'BOTH'] } }),
       User.countDocuments({ role: { $in: ['VOLUNTEER', 'BOTH'] } }),
@@ -34,7 +35,8 @@ const getAdminStats = async (req, res) => {
       SOS.countDocuments({ status: 'cancelled' }),
       SOS.countDocuments({
         status: { $in: ['pending', 'accepted', 'awaiting_user_confirmation'] }
-      })
+      }),
+      SOS.countDocuments({ status: 'escalated' })
     ]);
 
     const payload = {
@@ -47,7 +49,8 @@ const getAdminStats = async (req, res) => {
       completedSOS,
       cancelledSOS,
       activeSOS,
-      acceptedSOS
+      acceptedSOS,
+      escalatedSOS
     };
 
     console.log(ADMIN_ANALYTICS_DEBUG, 'counts', payload);

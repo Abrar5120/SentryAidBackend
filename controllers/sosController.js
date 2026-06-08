@@ -24,7 +24,7 @@ const RELATIONSHIP_IMAGE_DEBUG = 'RELATIONSHIP_IMAGE_DEBUG';
 const VOLUNTEER_ACCEPTED_EMAIL_DEBUG = 'VOLUNTEER_ACCEPTED_EMAIL_DEBUG';
 const SOS_COMPLETE_DEBUG = 'SOS_COMPLETE_DEBUG';
 
-const ACTIVE_USER_SOS_STATUSES = ['pending', 'accepted', 'awaiting_user_confirmation'];
+const ACTIVE_USER_SOS_STATUSES = ['pending', 'accepted', 'awaiting_user_confirmation', 'escalated'];
 const ACTIVE_VOLUNTEER_SOS_STATUSES = ['accepted', 'awaiting_user_confirmation'];
 const VOLUNTEER_SOS_DEBUG = 'VOLUNTEER_SOS_DEBUG';
 const VOLUNTEER_CONTACT_DEBUG = 'VOLUNTEER_CONTACT_DEBUG';
@@ -321,6 +321,8 @@ const createSOS = async (req, res) => {
     });
 
     const requester = await User.findById(userId).select('name email');
+
+    scheduleSosEscalation(sos._id);
 
     process.nextTick(() => {
       runSosTargetSideEffects(sos, target, requester).catch((err) => {

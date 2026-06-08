@@ -67,8 +67,26 @@ const SOSSchema = new mongoose.Schema({
   },
   status: {
     type: String,
-    enum: ["pending", "accepted", "awaiting_user_confirmation", "completed", "cancelled"],
+    enum: [
+      "pending",
+      "accepted",
+      "awaiting_user_confirmation",
+      "completed",
+      "cancelled",
+      "escalated",
+      "resolved_by_admin"
+    ],
     default: "pending"
+  },
+  /** When SOS was escalated after 5 minutes with no volunteer accept */
+  escalatedAt: {
+    type: Date,
+    default: null
+  },
+  /** When an administrator manually resolved an escalated SOS */
+  resolvedAt: {
+    type: Date,
+    default: null
   },
   /** Set when the assigned volunteer marks assistance as provided (user must confirm completion). */
   completionRequestedAt: {

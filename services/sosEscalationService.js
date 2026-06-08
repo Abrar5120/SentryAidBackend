@@ -2,6 +2,7 @@ const SOS = require('../models/SOS');
 const User = require('../models/User');
 const EmergencyContact = require('../models/EmergencyContact');
 const { sendSosEmergencyEmail } = require('../utils/sendSosEmergencyEmail');
+const { sendSosEscalatedUserNotification } = require('./fcmSosService');
 const {
   hasValidSosLocation,
   repairSosLocationOnDocument,
@@ -69,10 +70,6 @@ function buildEscalationEmailHtml(user, sos) {
 </div>`;
 }
 
-/**
- * Ensure SOS location is valid or repairable before any write.
- * @returns {boolean} false when escalation should be skipped for this document
- */
 function ensureSosLocationOrSkip(sos) {
   if (hasValidSosLocation(sos)) {
     return true;
@@ -88,8 +85,53 @@ function ensureSosLocationOrSkip(sos) {
   return false;
 }
 
+async function sendEscalationEmails(sos, user) {
+  const contacts = await EmergencyContact.find({ userId: sos.userId });
+  const validContacts = contacts.filter((c) => isValidContactEmail(c.email));
+
+  if (!validContacts.length) {
+    console.log(SOS_ESCALATION_DEBUG, 'no emergency contacts to email', String(sos._id));
+    return false;
+  }
+
+  const subject = `URGENT: SOS escalation — no volunteer response for ${user?.name || 'SentryAid user'}`;
+  const html = buildEscalationEmailHtml(user, sos);
+
+  console.log(SOS_ESCALATION_DEBUG, 'sending emails', 'count=', validContacts.length, 'sosId=', String(sos._id));
+
+  let sentAny = false;
+  for (const c of validContacts) {
+    const email = c.email.trim().toLowerCase();
+    try {
+      await sendSosEmergencyEmail(email, subject, html);
+      sentAny = true;
+    } catch (err) {
+      console.error(SOS_ESCALATION_DEBUG, 'email failed for', email, err.message || err);
+    }
+  }
+  return sentAny;
+}
+
+async function finalizeSosEscalation(sos) {
+  sos.status = 'escalated';
+  sos.escalationEmailSent = true;
+  sos.escalatedAt = new Date();
+  await saveSosWithLocationRepair(sos);
+
+  console.log(SOS_ESCALATION_DEBUG, 'escalated SOS', String(sos._id));
+
+  try {
+    await sendSosEscalatedUserNotification(sos);
+    console.log(SOS_ESCALATION_DEBUG, 'user notified', String(sos._id));
+  } catch (err) {
+    console.error(SOS_ESCALATION_DEBUG, 'user notify failed', String(sos._id), err.message || err);
+  }
+
+  console.log(SOS_ESCALATION_DEBUG, 'added to admin queue', String(sos._id));
+}
+
 /**
- * Send escalation emails once for a still-pending SOS.
+ * Escalate a still-pending SOS after 5 minutes: emails, status change, user FCM.
  */
 async function runSosEscalationCheck(sosId) {
   try {
@@ -97,6 +139,10 @@ async function runSosEscalationCheck(sosId) {
 
     const sos = await SOS.findById(sosId);
     if (!sos) {
+      return;
+    }
+
+    if (sos.status === 'escalated' || sos.status === 'resolved_by_admin') {
       return;
     }
 
@@ -116,39 +162,11 @@ async function runSosEscalationCheck(sosId) {
 
     console.log(SOS_ESCALATION_DEBUG, 'still pending', String(sosId));
 
-    const contacts = await EmergencyContact.find({ userId: sos.userId });
-    const validContacts = contacts.filter((c) => isValidContactEmail(c.email));
-
-    if (!validContacts.length) {
-      console.log(SOS_ESCALATION_DEBUG, 'no emergency contacts to notify', String(sosId));
-      sos.escalationEmailSent = true;
-      await saveSosWithLocationRepair(sos);
-      return;
-    }
-
     const user = await User.findById(sos.userId).select('name phone');
-    const subject = `URGENT: SOS escalation — no volunteer response for ${user?.name || 'SentryAid user'}`;
-    const html = buildEscalationEmailHtml(user, sos);
+    await sendEscalationEmails(sos, user);
+    await finalizeSosEscalation(sos);
 
-    console.log(SOS_ESCALATION_DEBUG, 'sending emails', 'count=', validContacts.length, 'sosId=', String(sosId));
-
-    let sentAny = false;
-    for (const c of validContacts) {
-      const email = c.email.trim().toLowerCase();
-      try {
-        await sendSosEmergencyEmail(email, subject, html);
-        sentAny = true;
-      } catch (err) {
-        console.error(SOS_ESCALATION_DEBUG, 'email failed for', email, err.message || err);
-      }
-    }
-
-    sos.escalationEmailSent = true;
-    await saveSosWithLocationRepair(sos);
-
-    if (sentAny) {
-      console.log(SOS_ESCALATION_DEBUG, 'success', String(sosId));
-    }
+    console.log(SOS_ESCALATION_DEBUG, 'success', String(sosId));
   } catch (err) {
     console.error(SOS_ESCALATION_DEBUG, 'escalation check failed', String(sosId), err.message || err);
   }
@@ -180,9 +198,6 @@ function cancelSosEscalation(sosId) {
   }
 }
 
-/**
- * On server start: process pending SOS older than 5 minutes that were not escalated yet.
- */
 async function recoverPendingEscalations() {
   try {
     await repairInvalidSosLocationsInDb(SOS);
@@ -206,6 +221,34 @@ async function recoverPendingEscalations() {
         console.error(
           SOS_ESCALATION_DEBUG,
           'recovery item failed',
+          String(row._id),
+          err.message || err
+        );
+      }
+    }
+
+    const legacyRows = await SOS.find({
+      status: 'pending',
+      escalationEmailSent: true
+    }).select('_id escalatedAt updatedAt createdAt');
+
+    for (const row of legacyRows) {
+      try {
+        const doc = await SOS.findById(row._id);
+        if (!doc || doc.status !== 'pending') {
+          continue;
+        }
+        doc.status = 'escalated';
+        if (!doc.escalatedAt) {
+          doc.escalatedAt = doc.updatedAt || doc.createdAt || new Date();
+        }
+        // eslint-disable-next-line no-await-in-loop
+        await saveSosWithLocationRepair(doc);
+        console.log(SOS_ESCALATION_DEBUG, 'legacy pending→escalated', String(row._id));
+      } catch (err) {
+        console.error(
+          SOS_ESCALATION_DEBUG,
+          'legacy fix failed',
           String(row._id),
           err.message || err
         );
