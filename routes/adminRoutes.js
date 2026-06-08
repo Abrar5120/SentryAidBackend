@@ -5,7 +5,8 @@ const adminOnly = require('../middleware/adminMiddleware');
 const {
   getAdminUsersDirectory,
   getAdminVolunteersDirectory,
-  deleteAdminUserAccount
+  deleteAdminUserAccount,
+  terminateVolunteerAccount
 } = require('../controllers/adminDirectoryController');
 const {
   streamUserNidImage,
@@ -67,6 +68,7 @@ router.get('/users/:userId/detail', protect, adminOnly, getAdminUserDetail);
 router.get('/users/:userId/nid/:side', protect, adminOnly, streamUserNidImage);
 router.get('/volunteers', protect, adminOnly, getAdminVolunteersDirectory);
 router.delete('/users/:id', protect, adminOnly, deleteAdminUserAccount);
+router.post('/volunteers/:id/terminate', protect, adminOnly, terminateVolunteerAccount);
 
 // PUT /api/admin/approve/:userId
 // Approves a volunteer by updating status to "approved"

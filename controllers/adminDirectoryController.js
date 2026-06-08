@@ -1,6 +1,8 @@
 const User = require('../models/User');
+const sendVolunteerTerminationEmail = require('../utils/sendVolunteerTerminationEmail');
 
 const ADMIN_TERMINATE_DEBUG = 'ADMIN_TERMINATE_DEBUG';
+const VOLUNTEER_TERMINATION_EMAIL_DEBUG = 'VOLUNTEER_TERMINATION_EMAIL_DEBUG';
 
 function escapeRegex(s) {
   return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -27,6 +29,9 @@ function mapUserPublic(u) {
     role: u.role,
     status: u.status,
     volunteerAvailabilityStatus: u.volunteerAvailabilityStatus,
+    volunteerApprovalStatus: u.volunteerApprovalStatus || 'pending',
+    terminationReason: u.terminationReason || null,
+    terminatedAt: u.terminatedAt || null,
     profileImage: u.profileImage || '',
     hasNidFront: Boolean(u.nidFrontImage),
     hasNidBack: Boolean(u.nidBackImage),
@@ -123,9 +128,90 @@ const deleteAdminUserAccount = async (req, res) => {
   }
 };
 
+/**
+ * POST /api/admin/volunteers/:id/terminate
+ * Soft-terminate volunteer access with audit reason (does not delete the user record).
+ */
+const terminateVolunteerAccount = async (req, res) => {
+  try {
+    const adminId = req.user?._id ?? req.user?.id;
+    const { id } = req.params;
+    const reason = typeof req.body?.reason === 'string' ? req.body.reason.trim() : '';
+
+    if (!reason) {
+      return res.status(400).json({
+        success: false,
+        message: 'Termination reason is required'
+      });
+    }
+
+    const user = await User.findById(id);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'Volunteer not found'
+      });
+    }
+
+    if (!['VOLUNTEER', 'BOTH'].includes(user.role)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Account is not a volunteer account'
+      });
+    }
+
+    if (user.volunteerApprovalStatus === 'terminated') {
+      return res.status(400).json({
+        success: false,
+        message: 'Volunteer account is already terminated'
+      });
+    }
+
+    const terminatedAt = new Date();
+    user.volunteerApprovalStatus = 'terminated';
+    user.volunteerAvailabilityStatus = 'inactive';
+    user.terminationReason = reason;
+    user.terminatedAt = terminatedAt;
+    user.terminatedBy = adminId;
+    await user.save();
+
+    console.log(ADMIN_TERMINATE_DEBUG, 'volunteer terminated id=', String(id), 'reason=', reason);
+
+    try {
+      await sendVolunteerTerminationEmail(user.email, user.name, terminatedAt, reason);
+      console.log(VOLUNTEER_TERMINATION_EMAIL_DEBUG, 'success', user.email);
+    } catch (emailErr) {
+      console.error(
+        VOLUNTEER_TERMINATION_EMAIL_DEBUG,
+        'failed',
+        user.email,
+        emailErr?.message || emailErr
+      );
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: 'Volunteer account terminated successfully.',
+      volunteer: {
+        id: String(user._id),
+        volunteerApprovalStatus: user.volunteerApprovalStatus,
+        terminationReason: user.terminationReason,
+        terminatedAt: user.terminatedAt
+      }
+    });
+  } catch (err) {
+    console.error(ADMIN_TERMINATE_DEBUG, 'terminateVolunteerAccount', err);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to terminate volunteer account'
+    });
+  }
+};
+
 module.exports = {
   getAdminUsersDirectory,
   getAdminVolunteersDirectory,
   deleteAdminUserAccount,
+  terminateVolunteerAccount,
   ADMIN_TERMINATE_DEBUG
 };

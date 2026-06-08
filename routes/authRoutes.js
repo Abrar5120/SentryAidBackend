@@ -311,6 +311,13 @@ router.post('/login', async (req, res) => {
       });
     }
 
+    if (isVolunteerRole && volunteerApprovalStatus === "terminated") {
+      return res.status(403).json({
+        success: false,
+        message: "Your volunteer account has been terminated. Please contact SentryAid support."
+      });
+    }
+
     if (isVolunteerRole && volunteerApprovalStatus !== "approved") {
       return res.status(403).json({
         success: false,
@@ -323,6 +330,12 @@ router.post('/login', async (req, res) => {
         return res.status(403).json({
           success: false,
           message: "Your user account is not approved."
+        });
+      }
+      if (requestedLoginType === "VOLUNTEER" && volunteerApprovalStatus === "terminated") {
+        return res.status(403).json({
+          success: false,
+          message: "Your volunteer account has been terminated. Please contact SentryAid support."
         });
       }
       if (requestedLoginType === "VOLUNTEER" && volunteerApprovalStatus !== "approved") {

@@ -44,8 +44,22 @@ const userSchema = new mongoose.Schema({
   },
   volunteerApprovalStatus: {
     type: String,
-    enum: ["pending", "approved", "rejected"],
+    enum: ["pending", "approved", "rejected", "terminated"],
     default: "pending"
+  },
+  /** Reason recorded when an administrator terminates volunteer access */
+  terminationReason: {
+    type: String,
+    default: null
+  },
+  terminatedAt: {
+    type: Date,
+    default: null
+  },
+  terminatedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    default: null
   },
   emailOTP: {
     type: String,

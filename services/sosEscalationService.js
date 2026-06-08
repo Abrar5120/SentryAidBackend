@@ -2,7 +2,10 @@ const SOS = require('../models/SOS');
 const User = require('../models/User');
 const EmergencyContact = require('../models/EmergencyContact');
 const { sendSosEmergencyEmail } = require('../utils/sendSosEmergencyEmail');
-const { sendSosEscalatedUserNotification } = require('./fcmSosService');
+const {
+  sendSosEscalatedUserNotification,
+  sendSosEscalatedAdminNotifications
+} = require('./fcmSosService');
 const {
   hasValidSosLocation,
   repairSosLocationOnDocument,
@@ -125,6 +128,12 @@ async function finalizeSosEscalation(sos) {
     console.log(SOS_ESCALATION_DEBUG, 'user notified', String(sos._id));
   } catch (err) {
     console.error(SOS_ESCALATION_DEBUG, 'user notify failed', String(sos._id), err.message || err);
+  }
+
+  try {
+    await sendSosEscalatedAdminNotifications(sos);
+  } catch (err) {
+    console.error(SOS_ESCALATION_DEBUG, 'admin notify failed', String(sos._id), err.message || err);
   }
 
   console.log(SOS_ESCALATION_DEBUG, 'added to admin queue', String(sos._id));

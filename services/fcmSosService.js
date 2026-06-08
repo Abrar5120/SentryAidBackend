@@ -246,9 +246,90 @@ async function sendSosEscalatedUserNotification(sos) {
   console.log(SOS_FCM_DEBUG, 'escalated-user sent to', tokens.length, 'token(s) sosId=', sosId);
 }
 
+const ADMIN_ESCALATION_DEBUG = 'ADMIN_ESCALATION_DEBUG';
+
+/**
+ * Notify all active admin accounts when an SOS is escalated.
+ */
+async function sendSosEscalatedAdminNotifications(sos) {
+  const sosId = sos?._id ? String(sos._id) : '';
+
+  try {
+    console.log(ADMIN_ESCALATION_DEBUG, 'sending notification', sosId || '(no id)');
+
+    const admins = await User.find({
+      role: 'ADMIN',
+      fcmTokens: { $exists: true, $not: { $size: 0 } }
+    }).select('fcmTokens name email');
+
+    const tokenSet = new Set();
+    for (const admin of admins) {
+      if (!Array.isArray(admin.fcmTokens)) {
+        continue;
+      }
+      for (const t of admin.fcmTokens) {
+        if (t && typeof t === 'string' && t.trim()) {
+          tokenSet.add(t.trim());
+        }
+      }
+    }
+
+    const tokens = Array.from(tokenSet);
+    if (!tokens.length) {
+      console.log(ADMIN_ESCALATION_DEBUG, 'success', 'no admin tokens');
+      return;
+    }
+
+    if (!initFirebaseAdminIfPossible()) {
+      console.warn(ADMIN_ESCALATION_DEBUG, 'failed', 'Firebase not configured');
+      return;
+    }
+
+    const messaging = admin.messaging();
+    const title = 'ESCALATED SOS ALERT';
+    const body =
+      'No volunteer accepted an SOS within 5 minutes.\nAdministrative attention is required.';
+
+    const BATCH = 500;
+    for (let i = 0; i < tokens.length; i += BATCH) {
+      const batch = tokens.slice(i, i + BATCH);
+      // eslint-disable-next-line no-await-in-loop
+      const result = await messaging.sendEachForMulticast({
+        tokens: batch,
+        data: {
+          type: 'ADMIN_ESCALATED_SOS',
+          sosId,
+          targetScreen: 'admin_escalated_sos',
+          title,
+          body
+        },
+        android: {
+          priority: 'high'
+        }
+      });
+
+      if (result.failureCount > 0) {
+        console.warn(
+          ADMIN_ESCALATION_DEBUG,
+          'partial failure',
+          'failures=',
+          result.failureCount,
+          'success=',
+          result.successCount
+        );
+      }
+    }
+
+    console.log(ADMIN_ESCALATION_DEBUG, 'success', 'tokens=', tokens.length, 'sosId=', sosId);
+  } catch (err) {
+    console.error(ADMIN_ESCALATION_DEBUG, 'failed', sosId, err.message || err);
+  }
+}
+
 module.exports = {
   sendNearbyVolunteerSosNotifications,
   sendAssistanceProvidedNotification,
   sendSosEscalatedUserNotification,
+  sendSosEscalatedAdminNotifications,
   SOS_NEARBY_RADIUS_METERS
 };
