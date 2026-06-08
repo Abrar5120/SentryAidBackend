@@ -366,10 +366,19 @@ const getAvailableSOS = async (req, res) => {
     }
 
     const volunteer = await User.findById(volunteerId).select(
-      'role volunteerAvailabilityStatus location'
+      'role volunteerAvailabilityStatus volunteerApprovalStatus location'
     );
     const role = (volunteer?.role || '').toUpperCase();
     const availability = (volunteer?.volunteerAvailabilityStatus || 'active').toLowerCase();
+    const volunteerApproval = (volunteer?.volunteerApprovalStatus || 'pending').toLowerCase();
+
+    if ((role === 'VOLUNTEER' || role === 'BOTH') && volunteerApproval !== 'approved') {
+      return res.json({
+        success: true,
+        sosList: [],
+        message: 'Volunteer account is not approved'
+      });
+    }
 
     if ((role === 'VOLUNTEER' || role === 'BOTH') && availability !== 'active') {
       return res.json({

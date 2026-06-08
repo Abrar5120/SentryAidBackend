@@ -1,5 +1,10 @@
 const User = require('../models/User');
 const sendVolunteerTerminationEmail = require('../utils/sendVolunteerTerminationEmail');
+const {
+  APPROVED_VOLUNTEER_FILTER,
+  logApprovedVolunteerIncluded,
+  logPendingApplicantExcluded
+} = require('../utils/volunteerApprovalFilters');
 
 const ADMIN_TERMINATE_DEBUG = 'ADMIN_TERMINATE_DEBUG';
 const VOLUNTEER_TERMINATION_EMAIL_DEBUG = 'VOLUNTEER_TERMINATION_EMAIL_DEBUG';
@@ -64,11 +69,19 @@ const getAdminUsersDirectory = async (req, res) => {
 const getAdminVolunteersDirectory = async (req, res) => {
   try {
     const search = buildSearchFilter(req.query.q);
-    const roleFilter = { role: { $in: ['VOLUNTEER', 'BOTH'] } };
-    const filter = search ? { $and: [roleFilter, search] } : roleFilter;
+    const filter = search ? { $and: [APPROVED_VOLUNTEER_FILTER, search] } : APPROVED_VOLUNTEER_FILTER;
 
     const rows = await User.find(filter).select('-password').sort({ createdAt: -1 }).lean();
     const volunteers = rows.map(mapUserPublic);
+
+    const pendingExcluded = await User.countDocuments({
+      role: { $in: ['VOLUNTEER', 'BOTH'] },
+      volunteerApprovalStatus: { $ne: 'approved' }
+    });
+    if (pendingExcluded > 0) {
+      logPendingApplicantExcluded('volunteer directory', `excludedCount=${pendingExcluded}`);
+    }
+    logApprovedVolunteerIncluded('volunteer directory', `count=${volunteers.length}`);
 
     return res.status(200).json({
       success: true,

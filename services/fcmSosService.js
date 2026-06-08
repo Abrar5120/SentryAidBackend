@@ -37,6 +37,7 @@ async function findNearbyVolunteerTokens(sos) {
           spherical: true,
           query: {
             role: { $in: ['VOLUNTEER', 'BOTH'] },
+            volunteerApprovalStatus: 'approved',
             volunteerAvailabilityStatus: 'active',
             'fcmTokens.0': { $exists: true },
             location: { $exists: true, $ne: null }

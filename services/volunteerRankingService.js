@@ -1,4 +1,8 @@
 const Review = require('../models/Review');
+const {
+  logApprovedVolunteerIncluded,
+  logPendingApplicantExcluded
+} = require('../utils/volunteerApprovalFilters');
 
 /**
  * Builds volunteer leaderboard from current Review documents (recomputed on every request).
@@ -36,28 +40,31 @@ async function buildVolunteerRankings(options = {}) {
     }
   ]);
 
-  return rows.map((row, index) => {
+  const approvedRows = rows.filter((row) => {
+    const vol = row.volunteerDoc;
+    const isApproved = vol && vol.volunteerApprovalStatus === 'approved';
+    if (!isApproved && vol) {
+      logPendingApplicantExcluded('volunteer rankings', String(vol._id));
+    }
+    return isApproved;
+  });
+
+  logApprovedVolunteerIncluded('volunteer rankings', `count=${approvedRows.length}`);
+
+  return approvedRows.map((row, index) => {
     const vol = row.volunteerDoc;
     const avgRaw = row.averageRating != null ? row.averageRating : 0;
     const averageRating = Math.round(avgRaw * 10) / 10;
 
     return {
       rank: index + 1,
-      volunteer: vol
-        ? {
-            _id: vol._id,
-            name: vol.name,
-            email: vol.email || '',
-            ...(includeContact ? { phone: vol.phone || '' } : {}),
-            profileImage: vol.profileImage || ''
-          }
-        : {
-            _id: row._id,
-            name: 'Unknown',
-            email: '',
-            ...(includeContact ? { phone: '' } : {}),
-            profileImage: ''
-          },
+      volunteer: {
+        _id: vol._id,
+        name: vol.name,
+        email: vol.email || '',
+        ...(includeContact ? { phone: vol.phone || '' } : {}),
+        profileImage: vol.profileImage || ''
+      },
       averageRating,
       totalReviews: row.totalReviews
     };

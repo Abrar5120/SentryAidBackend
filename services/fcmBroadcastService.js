@@ -2,6 +2,7 @@ const { admin, initFirebaseAdminIfPossible } = require('../config/firebaseAdmin'
 const User = require('../models/User');
 
 const BROADCAST_FCM_TAG = 'BROADCAST_FCM';
+const BROADCAST_PUSH_DEBUG = 'BROADCAST_PUSH_DEBUG';
 
 async function sendBroadcastNotifications(opts) {
   const { broadcastId, title } = opts || {};
@@ -10,8 +11,11 @@ async function sendBroadcastNotifications(opts) {
     return;
   }
 
+  console.log(BROADCAST_PUSH_DEBUG, 'sending', 'broadcastId=', broadcastId);
+
   if (!initFirebaseAdminIfPossible()) {
     console.warn(BROADCAST_FCM_TAG, 'skip send — Firebase not configured');
+    console.error(BROADCAST_PUSH_DEBUG, 'failed', 'Firebase not configured');
     return;
   }
 
@@ -35,6 +39,7 @@ async function sendBroadcastNotifications(opts) {
   if (!tokens.length) {
     console.log('FCM_BROADCAST_DEBUG tokens =', 0);
     console.log(BROADCAST_FCM_TAG, 'no device tokens registered');
+    console.log(BROADCAST_PUSH_DEBUG, 'success', 'no device tokens registered');
     return;
   }
 
@@ -69,6 +74,17 @@ async function sendBroadcastNotifications(opts) {
 
   console.log('FCM_BROADCAST_DEBUG success =', totalSuccess);
   console.log('FCM_BROADCAST_DEBUG failure =', totalFailure);
+  console.log(
+    BROADCAST_PUSH_DEBUG,
+    totalFailure > 0 && totalSuccess === 0 ? 'failed' : 'success',
+    'tokens=',
+    tokens.length,
+    'sent=',
+    totalSuccess,
+    'failed=',
+    totalFailure
+  );
+  console.log(BROADCAST_FCM_TAG, 'broadcast push notifications dispatched to all users and volunteers');
 }
 
 module.exports = {

@@ -1,5 +1,9 @@
 const User = require('../models/User');
 const SOS = require('../models/SOS');
+const {
+  APPROVED_VOLUNTEER_FILTER,
+  logApprovedVolunteerIncluded
+} = require('../utils/volunteerApprovalFilters');
 
 const ADMIN_ANALYTICS_DEBUG = 'ADMIN_ANALYTICS_DEBUG';
 
@@ -22,7 +26,7 @@ const getAdminStats = async (req, res) => {
       escalatedSOS
     ] = await Promise.all([
       User.countDocuments({ role: { $in: ['USER', 'BOTH'] } }),
-      User.countDocuments({ role: { $in: ['VOLUNTEER', 'BOTH'] } }),
+      User.countDocuments(APPROVED_VOLUNTEER_FILTER),
       User.countDocuments({
         role: { $in: ['VOLUNTEER', 'BOTH'] },
         volunteerApprovalStatus: 'pending',
@@ -53,6 +57,7 @@ const getAdminStats = async (req, res) => {
       escalatedSOS
     };
 
+    logApprovedVolunteerIncluded('admin stats approvedVolunteers', String(approvedVolunteers));
     console.log(ADMIN_ANALYTICS_DEBUG, 'counts', payload);
 
     return res.status(200).json(payload);
