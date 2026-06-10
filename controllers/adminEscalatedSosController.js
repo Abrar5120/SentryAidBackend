@@ -1,7 +1,10 @@
 const SOS = require('../models/SOS');
+const User = require('../models/User');
+const EmergencyContact = require('../models/EmergencyContact');
 const { saveSosWithLocationRepair } = require('../utils/sosLocationRepair');
 
 const SOS_ESCALATION_DEBUG = 'SOS_ESCALATION_DEBUG';
+const ADMIN_ESCALATION_DEBUG = 'ADMIN_ESCALATION_DEBUG';
 
 function formatDurationMs(ms) {
   if (!ms || ms < 0) {
@@ -16,11 +19,63 @@ function formatDurationMs(ms) {
   return `${minutes}m`;
 }
 
-function mapEscalatedRow(sos) {
+/**
+ * Loads emergency contacts for a SOS requester; phone resolved from linked SentryAid user when registered.
+ */
+async function loadEmergencyContactsForUser(userId) {
+  const ownerId = userId != null ? String(userId) : '';
+  console.log(ADMIN_ESCALATION_DEBUG, 'loading contacts', ownerId || '(none)');
+
+  if (!ownerId) {
+    console.log(ADMIN_ESCALATION_DEBUG, 'no contacts available', '(no userId)');
+    return [];
+  }
+
+  const contacts = await EmergencyContact.find({ userId: ownerId })
+    .sort({ createdAt: 1 })
+    .lean();
+
+  if (!contacts.length) {
+    console.log(ADMIN_ESCALATION_DEBUG, 'no contacts available', ownerId);
+    return [];
+  }
+
+  const linkedIds = contacts
+    .map((c) => c.linkedUserId)
+    .filter((id) => id != null);
+
+  const linkedUsers = linkedIds.length
+    ? await User.find({ _id: { $in: linkedIds } }).select('phone').lean()
+    : [];
+
+  const phoneByUserId = new Map(
+    linkedUsers.map((u) => [String(u._id), u.phone && String(u.phone).trim() ? u.phone : null])
+  );
+
+  const mapped = contacts.map((c) => {
+    const linkedKey = c.linkedUserId != null ? String(c.linkedUserId) : null;
+    const phone = linkedKey ? phoneByUserId.get(linkedKey) || null : null;
+    return {
+      name: c.name && String(c.name).trim() ? c.name : '—',
+      relationship: c.relationship && String(c.relationship).trim()
+        ? c.relationship
+        : 'Emergency Contact',
+      phone,
+      email: c.email && String(c.email).trim() ? c.email : null
+    };
+  });
+
+  console.log(ADMIN_ESCALATION_DEBUG, 'contacts found', mapped.length, ownerId);
+  return mapped;
+}
+
+async function mapEscalatedRow(sos) {
   const user = sos.userId && typeof sos.userId === 'object' ? sos.userId : null;
   const escalatedAt = sos.escalatedAt || sos.createdAt;
   const escalatedMs = escalatedAt ? Date.now() - new Date(escalatedAt).getTime() : 0;
   const mapLink = `https://maps.google.com/?q=${sos.latitude},${sos.longitude}`;
+  const ownerId = user ? user._id : sos.userId;
+  const emergencyContacts = await loadEmergencyContactsForUser(ownerId);
 
   return {
     id: String(sos._id),
@@ -36,7 +91,8 @@ function mapEscalatedRow(sos) {
     createdAt: sos.createdAt,
     escalatedAt,
     escalatedDuration: formatDurationMs(escalatedMs),
-    areaName: sos.areaName || null
+    areaName: sos.areaName || null,
+    emergencyContacts
   };
 }
 
@@ -49,9 +105,11 @@ const getEscalatedSosList = async (req, res) => {
       .sort({ escalatedAt: -1, createdAt: -1 })
       .populate('userId', 'name phone nid');
 
+    const escalatedSos = await Promise.all(rows.map((row) => mapEscalatedRow(row)));
+
     return res.json({
       success: true,
-      escalatedSos: rows.map(mapEscalatedRow)
+      escalatedSos
     });
   } catch (err) {
     console.error(SOS_ESCALATION_DEBUG, 'list failed', err.message || err);
