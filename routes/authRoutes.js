@@ -18,6 +18,8 @@ const { forgotPassword, resetPassword } = require('../controllers/authController
 const router = express.Router();
 
 const OTP_EXPIRY_MINUTES = 5;
+const OTP_RESEND_DEBUG = 'OTP_RESEND_DEBUG';
+const PROFILE_PHOTO_DEBUG = 'PROFILE_PHOTO_DEBUG';
 const generateOTP = () => String(Math.floor(100000 + Math.random() * 900000));
 
 // POST /api/auth/register
@@ -61,6 +63,13 @@ router.post('/register', (req, res, next) => {
       cleanupUploadedFiles(uploaded);
       return res.status(400).json({ message: 'NID back image is required' });
     }
+
+    if (!profileFile) {
+      console.log(PROFILE_PHOTO_DEBUG, 'missing image');
+      cleanupUploadedFiles(uploaded);
+      return res.status(400).json({ message: 'Profile photo is required' });
+    }
+    console.log(PROFILE_PHOTO_DEBUG, 'validation passed');
 
     // Validate all fields are provided
     if (!name || !email || !phone || !nid || !password) {
@@ -396,6 +405,68 @@ router.post('/forgot-password', forgotPassword);
 
 // POST /api/auth/reset-password
 router.post('/reset-password', resetPassword);
+
+// POST /api/auth/resend-otp
+router.post('/resend-otp', async (req, res) => {
+  try {
+    const { email } = req.body || {};
+    console.log(OTP_RESEND_DEBUG, 'requested', email ? String(email).trim().toLowerCase() : '(no email)');
+
+    if (!email || !String(email).trim()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Email is required'
+      });
+    }
+
+    const emailNorm = String(email).trim().toLowerCase();
+    const user = await User.findOne({ email: emailNorm });
+
+    if (!user) {
+      console.log(OTP_RESEND_DEBUG, 'failed', 'user not found');
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    if (user.isEmailVerified) {
+      console.log(OTP_RESEND_DEBUG, 'failed', 'already verified');
+      return res.status(400).json({
+        success: false,
+        message: 'Email is already verified'
+      });
+    }
+
+    const emailOTP = generateOTP();
+    const otpExpiry = new Date(Date.now() + OTP_EXPIRY_MINUTES * 60 * 1000);
+    user.emailOTP = emailOTP;
+    user.otpExpiry = otpExpiry;
+    await user.save();
+
+    try {
+      console.log(RESEND_DEBUG, 'resend-otp route invoking sendOTPEmail (Resend) for', user.email);
+      await sendOTPEmail(user.email, emailOTP);
+      console.log(OTP_RESEND_DEBUG, 'success', emailNorm);
+      return res.status(200).json({
+        success: true,
+        message: 'OTP sent successfully. Please check your email.'
+      });
+    } catch (mailErr) {
+      console.error(OTP_RESEND_DEBUG, 'failed', emailNorm, mailErr?.message || mailErr);
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to send OTP email. Please try again.'
+      });
+    }
+  } catch (error) {
+    console.error(OTP_RESEND_DEBUG, 'failed', error?.message || error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to resend OTP'
+    });
+  }
+});
 
 // POST /api/auth/verify-otp
 router.post('/verify-otp', async (req, res) => {
