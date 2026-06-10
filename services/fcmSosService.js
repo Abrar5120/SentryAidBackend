@@ -129,6 +129,91 @@ async function sendNearbyVolunteerSosNotifications(sos) {
   console.log(SOS_FCM_DEBUG, 'failure count', totalFailure);
 }
 
+const SOS_ACCEPT_NOTIFY_DEBUG = 'SOS_ACCEPT_NOTIFY_DEBUG';
+
+/**
+ * Notify the SOS requester when a volunteer accepts their SOS.
+ */
+async function sendSosAcceptedUserNotification(sos) {
+  const sosId = sos?._id ? String(sos._id) : '';
+
+  try {
+    console.log(SOS_ACCEPT_NOTIFY_DEBUG, 'sending', sosId || '(no id)');
+
+    if (!sos || !sos._id || !sos.userId) {
+      console.log(SOS_ACCEPT_NOTIFY_DEBUG, 'failed', 'missing sos or userId');
+      return;
+    }
+
+    const user = await User.findById(sos.userId).select('fcmTokens');
+    if (!user || !Array.isArray(user.fcmTokens) || !user.fcmTokens.length) {
+      console.log(SOS_ACCEPT_NOTIFY_DEBUG, 'failed', 'no user tokens');
+      return;
+    }
+
+    const tokenSet = new Set();
+    for (const t of user.fcmTokens) {
+      if (t && typeof t === 'string' && t.trim()) {
+        tokenSet.add(t.trim());
+      }
+    }
+    const tokens = Array.from(tokenSet);
+    if (!tokens.length) {
+      console.log(SOS_ACCEPT_NOTIFY_DEBUG, 'failed', 'no valid tokens');
+      return;
+    }
+
+    if (!initFirebaseAdminIfPossible()) {
+      console.log(SOS_ACCEPT_NOTIFY_DEBUG, 'failed', 'Firebase not configured');
+      return;
+    }
+
+    const messaging = admin.messaging();
+    const title = 'SOS Accepted';
+    const body = 'A volunteer has accepted your SOS and is on the way.';
+
+    const BATCH = 500;
+    let totalSuccess = 0;
+    let totalFailure = 0;
+
+    for (let i = 0; i < tokens.length; i += BATCH) {
+      const batch = tokens.slice(i, i + BATCH);
+      // eslint-disable-next-line no-await-in-loop
+      const res = await messaging.sendEachForMulticast({
+        tokens: batch,
+        data: {
+          type: 'SOS_ACCEPTED',
+          sosId,
+          targetScreen: 'user_dashboard',
+          title,
+          body
+        },
+        android: {
+          priority: 'high'
+        }
+      });
+      totalSuccess += res.successCount;
+      totalFailure += res.failureCount;
+    }
+
+    if (totalFailure > 0) {
+      console.log(
+        SOS_ACCEPT_NOTIFY_DEBUG,
+        'failed',
+        'partial failures success=',
+        totalSuccess,
+        'failure=',
+        totalFailure
+      );
+      return;
+    }
+
+    console.log(SOS_ACCEPT_NOTIFY_DEBUG, 'success', 'tokens=', tokens.length, 'sosId=', sosId);
+  } catch (err) {
+    console.log(SOS_ACCEPT_NOTIFY_DEBUG, 'failed', err.message || err);
+  }
+}
+
 /**
  * Notify the SOS requester that their volunteer marked assistance as provided.
  */
@@ -329,6 +414,7 @@ async function sendSosEscalatedAdminNotifications(sos) {
 
 module.exports = {
   sendNearbyVolunteerSosNotifications,
+  sendSosAcceptedUserNotification,
   sendAssistanceProvidedNotification,
   sendSosEscalatedUserNotification,
   sendSosEscalatedAdminNotifications,

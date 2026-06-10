@@ -6,6 +6,7 @@ const { sendSosEmergencyEmail, SOS_TARGET_DEBUG } = require('../utils/sendSosEme
 const sendVolunteerAcceptedEmail = require('../utils/sendVolunteerAcceptedEmail');
 const {
   sendNearbyVolunteerSosNotifications,
+  sendSosAcceptedUserNotification,
   sendAssistanceProvidedNotification
 } = require('../services/fcmSosService');
 const {
@@ -822,6 +823,7 @@ const acceptSOS = async (req, res) => {
 
     const volunteerIdForNotify = volunteerDbId != null ? volunteerDbId : volunteerId;
     void notifyEmergencyContactsOnVolunteerAccept(updated, volunteerIdForNotify);
+    void sendSosAcceptedUserNotification(updated);
 
     return res.json({
       success: true,
