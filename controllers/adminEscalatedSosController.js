@@ -2,6 +2,7 @@ const SOS = require('../models/SOS');
 const User = require('../models/User');
 const EmergencyContact = require('../models/EmergencyContact');
 const { saveSosWithLocationRepair } = require('../utils/sosLocationRepair');
+const { resolveContactPhone } = require('../utils/emergencyContactValidation');
 
 const SOS_ESCALATION_DEBUG = 'SOS_ESCALATION_DEBUG';
 const ADMIN_ESCALATION_DEBUG = 'ADMIN_ESCALATION_DEBUG';
@@ -54,13 +55,23 @@ async function loadEmergencyContactsForUser(userId) {
 
   const mapped = contacts.map((c) => {
     const linkedKey = c.linkedUserId != null ? String(c.linkedUserId) : null;
-    const phone = linkedKey ? phoneByUserId.get(linkedKey) || null : null;
+    const linkedPhone = linkedKey ? phoneByUserId.get(linkedKey) || null : null;
+    const phone = resolveContactPhone(c, linkedPhone);
+    const displayPhone = phone || null;
+
+    if (displayPhone) {
+      console.log(ADMIN_ESCALATION_DEBUG, 'displaying emergency contact phones', c.name, displayPhone);
+    } else {
+      console.log(ADMIN_ESCALATION_DEBUG, 'displaying emergency contact phones', c.name, 'Not provided');
+    }
+
     return {
       name: c.name && String(c.name).trim() ? c.name : '—',
       relationship: c.relationship && String(c.relationship).trim()
         ? c.relationship
         : 'Emergency Contact',
-      phone,
+      phone: displayPhone,
+      phoneNumber: c.phoneNumber && String(c.phoneNumber).trim() ? c.phoneNumber : null,
       email: c.email && String(c.email).trim() ? c.email : null
     };
   });
@@ -81,6 +92,7 @@ async function mapEscalatedRow(sos) {
     id: String(sos._id),
     userId: user ? String(user._id) : String(sos.userId),
     userName: user?.name || 'Unknown',
+    userEmail: user?.email || null,
     userPhone: user?.phone || null,
     userNid: user?.nid || null,
     message: sos.message || 'Emergency',
@@ -103,7 +115,7 @@ const getEscalatedSosList = async (req, res) => {
   try {
     const rows = await SOS.find({ status: 'escalated' })
       .sort({ escalatedAt: -1, createdAt: -1 })
-      .populate('userId', 'name phone nid');
+      .populate('userId', 'name email phone nid');
 
     const escalatedSos = await Promise.all(rows.map((row) => mapEscalatedRow(row)));
 

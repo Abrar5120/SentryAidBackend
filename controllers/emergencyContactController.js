@@ -1,5 +1,10 @@
 const EmergencyContact = require('../models/EmergencyContact');
 const User = require('../models/User');
+const {
+  normalizePhoneNumber,
+  isValidPhoneNumber,
+  isCompleteEmergencyContact
+} = require('../utils/emergencyContactValidation');
 
 const EMERGENCY_CONTACT_DEBUG = 'EMERGENCY_CONTACT_DEBUG';
 
@@ -26,13 +31,24 @@ function normalizeRelationship(raw) {
 const addEmergencyContact = async (req, res) => {
   try {
     const ownerId = req?.user?._id;
-    const { name, email, relationship } = req.body || {};
+    const { name, email, relationship, phoneNumber } = req.body || {};
 
     if (!ownerId) {
       return res.status(401).json({ success: false, message: 'Not authorized' });
     }
     if (!name || !email) {
       return res.status(400).json({ success: false, message: 'name and email are required' });
+    }
+
+    const normalizedPhone = normalizePhoneNumber(phoneNumber);
+    if (!normalizedPhone) {
+      return res.status(400).json({ success: false, message: 'phoneNumber is required' });
+    }
+    if (!isValidPhoneNumber(normalizedPhone)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please enter a valid phone number'
+      });
     }
 
     const normalizedEmail = String(email).trim().toLowerCase();
@@ -43,12 +59,14 @@ const addEmergencyContact = async (req, res) => {
       userId: ownerId,
       name: String(name).trim(),
       email: normalizedEmail,
+      phoneNumber: normalizedPhone,
       isRegistered: !!linked,
       linkedUserId: linked ? linked._id : null,
       relationship: relationshipLabel
     });
 
     console.log(EMERGENCY_CONTACT_DEBUG, 'contacts saved', doc._id.toString(), 'registered=', doc.isRegistered);
+    console.log(EMERGENCY_CONTACT_DEBUG, 'phone saved', normalizedPhone);
 
     return res.status(201).json({
       success: true,
@@ -129,5 +147,6 @@ const deleteEmergencyContact = async (req, res) => {
 module.exports = {
   addEmergencyContact,
   getMyEmergencyContacts,
-  deleteEmergencyContact
+  deleteEmergencyContact,
+  isCompleteEmergencyContact
 };

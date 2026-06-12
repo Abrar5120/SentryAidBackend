@@ -31,6 +31,12 @@ const emergencyContactSchema = new mongoose.Schema({
     trim: true,
     default: 'Emergency Contact'
   },
+  /** Stored as string to preserve leading zeros (e.g. 017XXXXXXXX). Required for new contacts via API. */
+  phoneNumber: {
+    type: String,
+    trim: true,
+    default: null
+  },
   createdAt: {
     type: Date,
     default: Date.now

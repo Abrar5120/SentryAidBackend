@@ -2,6 +2,7 @@ const SOS = require('../models/SOS');
 const Message = require('../models/Message');
 const User = require('../models/User');
 const EmergencyContact = require('../models/EmergencyContact');
+const { isCompleteEmergencyContact } = require('../utils/emergencyContactValidation');
 const { sendSosEmergencyEmail, SOS_TARGET_DEBUG } = require('../utils/sendSosEmergencyEmail');
 const sendVolunteerAcceptedEmail = require('../utils/sendVolunteerAcceptedEmail');
 const {
@@ -245,11 +246,13 @@ const createSOS = async (req, res) => {
       });
     }
 
-    const emergencyContactCount = await EmergencyContact.countDocuments({ userId });
-    if (emergencyContactCount < 1) {
+    const emergencyContacts = await EmergencyContact.find({ userId });
+    const completeContactCount = emergencyContacts.filter(isCompleteEmergencyContact).length;
+    if (completeContactCount < 1) {
       return res.status(400).json({
         success: false,
-        message: 'At least one emergency contact is required before sending SOS.'
+        message:
+          'At least one complete emergency contact (name, email, relationship, phone) is required before sending SOS.'
       });
     }
 

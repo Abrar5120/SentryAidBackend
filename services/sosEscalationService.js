@@ -13,6 +13,8 @@ const {
   repairInvalidSosLocationsInDb
 } = require('../utils/sosLocationRepair');
 
+const { resolveContactPhone } = require('../utils/emergencyContactValidation');
+
 const SOS_ESCALATION_DEBUG = 'SOS_ESCALATION_DEBUG';
 const SOS_ESCALATION_DELAY_MS =
   Number(process.env.SOS_ESCALATION_DELAY_MS) > 0
@@ -102,9 +104,28 @@ async function sendEscalationEmails(sos, user) {
 
   console.log(SOS_ESCALATION_DEBUG, 'sending emails', 'count=', validContacts.length, 'sosId=', String(sos._id));
 
+  const linkedIds = validContacts
+    .map((c) => c.linkedUserId)
+    .filter((id) => id != null);
+  const linkedUsers = linkedIds.length
+    ? await User.find({ _id: { $in: linkedIds } }).select('phone').lean()
+    : [];
+  const phoneByUserId = new Map(
+    linkedUsers.map((u) => [String(u._id), u.phone && String(u.phone).trim() ? u.phone : null])
+  );
+
   let sentAny = false;
   for (const c of validContacts) {
     const email = c.email.trim().toLowerCase();
+    const linkedKey = c.linkedUserId != null ? String(c.linkedUserId) : null;
+    const linkedPhone = linkedKey ? phoneByUserId.get(linkedKey) || null : null;
+    const phone = resolveContactPhone(c, linkedPhone);
+    if (phone) {
+      console.log(SOS_ESCALATION_DEBUG, 'contact phone found', c.name, phone);
+    } else {
+      console.log(SOS_ESCALATION_DEBUG, 'contact phone missing', c.name);
+    }
+
     try {
       await sendSosEmergencyEmail(email, subject, html);
       sentAny = true;
